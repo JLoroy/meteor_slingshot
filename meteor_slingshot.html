@@ -1,0 +1,2075 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meteor Slingshot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;600&family=Orbitron:wght@400;700;900&display=swap"
+    rel="stylesheet">
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #050818;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Minimal, discreet UI */
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      font-family: 'Orbitron', sans-serif;
+      color: rgba(220, 235, 255, 0.9);
+      letter-spacing: 0.2px;
+    }
+
+    .top {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      display: flex;
+      gap: 14px;
+      align-items: baseline;
+      text-shadow: 0 0 18px rgba(120, 180, 255, 0.18);
+    }
+
+    .score {
+      font-size: 14px;
+      opacity: 0.95;
+    }
+
+    .seed {
+      font-size: 12px;
+      opacity: 0.55;
+    }
+
+    .hint {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      max-width: min(560px, calc(100vw - 28px));
+      font-size: 12px;
+      line-height: 1.35;
+      opacity: 0.62;
+      text-shadow: 0 0 18px rgba(120, 180, 255, 0.12);
+    }
+
+    .hint kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(230, 245, 255, 0.88);
+    }
+
+    /* Skill Tree Overlay */
+    #skillTree {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(15, 25, 60, 0.96) 0%, rgba(5, 8, 24, 0.98) 100%);
+      padding: 40px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+      color: #e2e8f0;
+      font-family: 'Exo 2', sans-serif;
+    }
+
+    #skillTree.active {
+      display: flex;
+    }
+
+    .skill-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      width: 100%;
+      max-width: 1000px;
+      margin-top: 40px;
+    }
+
+    .skill-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(138, 180, 255, 0.15);
+      border-radius: 16px;
+      padding: 24px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .skill-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(138, 180, 255, 0.5), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .skill-card:hover {
+      border-color: rgba(138, 180, 255, 0.5);
+      background: rgba(255, 255, 255, 0.06);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 15px rgba(138, 180, 255, 0.1);
+    }
+
+    .skill-card:hover::before {
+      opacity: 1;
+    }
+
+    .skill-name {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      margin-bottom: 12px;
+      color: #8ab4ff;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .skill-desc {
+      font-size: 14px;
+      color: rgba(226, 232, 240, 0.7);
+      margin-bottom: 20px;
+      line-height: 1.6;
+      min-height: 3.2em;
+    }
+
+    .skill-stats {
+      font-size: 12px;
+      margin-bottom: 20px;
+      font-family: ui-monospace, 'SFMono-Regular', 'Roboto Mono', monospace;
+      color: #94a3b8;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .btn-upgrade {
+      font-family: 'Orbitron', sans-serif;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      width: 100%;
+      transition: all 0.2s;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.2);
+    }
+
+    .btn-upgrade:hover:not(:disabled) {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+      transform: scale(1.02);
+    }
+
+    .btn-upgrade:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .btn-upgrade:disabled {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.2);
+      border-color: transparent;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .skill-tree-header {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 1000px;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid rgba(138, 180, 255, 0.1);
+      padding-bottom: 20px;
+    }
+
+    .skill-tree-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: linear-gradient(to right, #8ab4ff, #ffffff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 30px rgba(138, 180, 255, 0.3);
+    }
+
+    .current-pp {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 20px;
+      color: #8ab4ff;
+      text-shadow: 0 0 15px rgba(138, 180, 255, 0.4);
+    }
+
+    .close-hint {
+      margin-top: 50px;
+      font-size: 13px;
+      opacity: 0.6;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .wip {
+      font-size: 9px;
+      background: rgba(255, 100, 100, 0.15);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 10px;
+      color: #ff8080;
+      border: 1px solid rgba(255, 100, 100, 0.3);
+      letter-spacing: 1px;
+    }
+
+    /* Main Menu Styles */
+    #mainMenu {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(10, 15, 45, 0.94) 0%, rgba(5, 8, 24, 0.98) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(15px);
+      font-family: 'Exo 2', sans-serif;
+      transition: opacity 0.5s ease, visibility 0.5s;
+    }
+
+    #mainMenu.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .menu-title-container {
+      text-align: center;
+      margin-bottom: 60px;
+      position: relative;
+    }
+
+    .menu-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(48px, 10vw, 84px);
+      font-weight: 900;
+      letter-spacing: 8px;
+      text-transform: uppercase;
+      background: linear-gradient(to bottom, #ffffff 0%, #8ab4ff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 30px rgba(138, 180, 255, 0.4));
+      margin: 0;
+    }
+
+    .menu-subtitle {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      letter-spacing: 4px;
+      color: rgba(138, 180, 255, 0.7);
+      text-transform: uppercase;
+      margin-top: 10px;
+    }
+
+    .menu-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .btn-menu {
+      font-family: 'Orbitron', sans-serif;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(138, 180, 255, 0.2);
+      color: #e2e8f0;
+      padding: 18px 30px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 700;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      backdrop-filter: blur(5px);
+    }
+
+    .btn-menu:hover {
+      background: rgba(138, 180, 255, 0.1);
+      border-color: rgba(138, 180, 255, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 20px rgba(138, 180, 255, 0.15);
+      color: #ffffff;
+    }
+
+    .btn-menu.primary {
+      background: linear-gradient(135deg, #1d4ed8 0%, #172554 100%);
+      border: 1px solid rgba(138, 180, 255, 0.3);
+      box-shadow: 0 4px 15px rgba(29, 78, 216, 0.3);
+    }
+
+    .btn-menu.primary:hover {
+      background: linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%);
+      box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4), 0 0 30px rgba(138, 180, 255, 0.2);
+    }
+
+    .menu-footer {
+      position: absolute;
+      bottom: 40px;
+      font-size: 12px;
+      color: rgba(226, 232, 240, 0.4);
+      letter-spacing: 1px;
+    }
+
+    #fadeOverlay {
+      position: fixed;
+      inset: 0;
+      background: #050818;
+      z-index: 1000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.8s ease-in-out;
+    }
+
+    #fadeOverlay.active {
+      opacity: 1;
+    }
+
+    .btn-next-system {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      font-family: 'Orbitron', sans-serif;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 14px 24px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+      pointer-events: auto;
+      z-index: 50;
+      display: none;
+      animation: buttonPulse 2s infinite ease-in-out;
+    }
+
+    .btn-next-system:hover {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      box-shadow: 0 0 30px rgba(37, 99, 235, 0.5);
+      transform: translateY(-2px) scale(1.05);
+    }
+
+    /* Settings Menu Styles */
+    #settingsMenu {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(15, 25, 60, 0.96) 0%, rgba(5, 8, 24, 0.98) 100%);
+      padding: 40px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 250;
+      backdrop-filter: blur(12px);
+      color: #e2e8f0;
+      font-family: 'Exo 2', sans-serif;
+    }
+
+    #settingsMenu.active {
+      display: flex;
+    }
+
+    .settings-container {
+      width: 100%;
+      max-width: 500px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(138, 180, 255, 0.15);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .settings-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 30px;
+      text-align: center;
+      color: #8ab4ff;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .settings-section {
+      margin-bottom: 30px;
+    }
+
+    .settings-label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      color: rgba(138, 180, 255, 0.7);
+      margin-bottom: 12px;
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      width: 100%;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
+    }
+
+    .btn-danger:hover {
+      background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+      transform: scale(1.02);
+    }
+
+    .btn-close-settings {
+      margin-top: 20px;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.5);
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      transition: all 0.2s;
+      width: 100%;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn-close-settings:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: white;
+      border-color: rgba(138, 180, 255, 0.3);
+    }
+
+    @keyframes buttonPulse {
+      0% {
+        box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+      }
+
+      50% {
+        box-shadow: 0 4px 30px rgba(37, 99, 235, 0.6);
+      }
+
+      100% {
+        box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="fadeOverlay"></div>
+  <canvas id="c"></canvas>
+  <div class="hud">
+    <div class="top">
+      <div class="score">Stations destroyed: <span id="destroyed-count">0</span> / <span id="total-count">0</span></div>
+      <div class="score">Progress Points: <span id="pp">0</span></div>
+      <div class="seed">Seed: <span id="seed"></span> | <span id="star-type"></span></div>
+    </div>
+    <div class="hint" id="hint"></div>
+    <button id="btnNextSystem" class="btn-next-system">Next System ></button>
+  </div>
+
+  <div id="mainMenu">
+    <div class="menu-title-container">
+      <h1 class="menu-title">Meteor Slingshot</h1>
+      <div class="menu-subtitle">Interstellar Trajectory Simulation</div>
+    </div>
+    <div class="menu-actions">
+      <button class="btn-menu primary" id="btnStart">Start Expedition</button>
+      <button class="btn-menu" id="btnEvolution">Evolution</button>
+      <button class="btn-menu" id="btnSettings">Settings</button>
+    </div>
+    <div class="menu-footer">
+      VON NEUMANN PROBE UNIT #820-EX
+    </div>
+  </div>
+
+  <div id="skillTree">
+    <div class="skill-tree-header">
+      <div class="skill-tree-title">Von Neumann Probe Evolution</div>
+      <div class="current-pp">Progress Points: <span id="st-pp">0</span></div>
+    </div>
+    <div class="skill-grid" id="skillGrid">
+      <!-- Skills injected here -->
+    </div>
+    <div class="close-hint">Press <kbd>K</kbd> to return to system</div>
+  </div>
+
+  <div id="settingsMenu">
+    <div class="settings-container">
+      <div class="settings-title">System Settings</div>
+
+      <div class="settings-section">
+        <label class="settings-label">Data Management</label>
+        <button class="btn-danger" id="btnResetProgress">Wipe All Progress (Reset)</button>
+        <div style="font-size: 11px; color: rgba(255,100,100,0.6); margin-top: 8px; text-align: center;">
+          Warning: This resets all PP and Evolution skills.
+        </div>
+      </div>
+
+      <button class="btn-close-settings" id="btnCloseSettings">Return to Main Menu</button>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('c');
+      const ctx = canvas.getContext('2d');
+      const scoreEl = document.getElementById('score');
+      const ppEl = document.getElementById('pp');
+      const stPpEl = document.getElementById('st-pp');
+      const seedEl = document.getElementById('seed');
+      const hintEl = document.getElementById('hint');
+      const skillTreeEl = document.getElementById('skillTree');
+      const skillGridEl = document.getElementById('skillGrid');
+      const mainMenuEl = document.getElementById('mainMenu');
+      const settingsMenuEl = document.getElementById('settingsMenu');
+      const btnStart = document.getElementById('btnStart');
+      const btnEvolution = document.getElementById('btnEvolution');
+      const btnSettings = document.getElementById('btnSettings');
+      const btnResetProgress = document.getElementById('btnResetProgress');
+      const btnCloseSettings = document.getElementById('btnCloseSettings');
+      const fadeOverlay = document.getElementById('fadeOverlay');
+      const btnNextSystem = document.getElementById('btnNextSystem');
+      const destroyedCountEl = document.getElementById('destroyed-count');
+      const totalCountEl = document.getElementById('total-count');
+      const starTypeEl = document.getElementById('star-type');
+
+      // ---------- Utilities ----------
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const len2 = (x, y) => x * x + y * y;
+      const len = (x, y) => Math.hypot(x, y);
+
+      function mulberry32(a) {
+        return function () {
+          let t = a += 0x6D2B79F5;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function hashSeed(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+          h ^= str.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+
+      function niceSeed() {
+        const a = Math.random().toString(36).slice(2, 6);
+        const b = Math.random().toString(36).slice(2, 6);
+        return (a + b).toUpperCase();
+      }
+
+      function glowCircle(x, y, r, core, glow, glowR) {
+        ctx.save();
+        const g = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+        g.addColorStop(0, glow);
+        g.addColorStop(0.35, glow);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, glowR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // ---------- Constants ----------
+      const G = 850;
+      const SOFTEN = 55;
+      const DT = 1 / 60;
+
+      // No forced timeout: chasing stable orbit is part of the fun.
+      const MAX_STEPS = Infinity;
+
+      // Speed tuning
+      const MIN_V = 2;             // allow very slow injections
+      const MAX_V = 820;
+      const SPEED_SCALE = 1.80;     // mouse distance -> speed
+      const SHIFT_SLOW_FACTOR = 0.1; // hold Shift for micro-speed
+
+      // Preview
+      const MAX_PREVIEW_LIMIT = 820;
+      const PREVIEW_DT = DT;
+      const PREVIEW_THROTTLE_MS = 40;
+
+      // ---------- Skills Definition ----------
+      const SKILLS = {
+        predictiveProcessing: {
+          name: 'Predictive Processing',
+          desc: 'Increases the length of your trajectory prediction.',
+          levels: [30, 60, 120, 240, 480, 820],
+          costs: [5, 15, 40, 100, 250],
+          unit: ' steps'
+        },
+        binaryFission: {
+          name: 'Binary Fission',
+          desc: 'Meteor splits into multiple fragments when activated with <kbd>E</kbd>.',
+          levels: [1, 2, 3, 4, 5],
+          costs: [10, 30, 80, 200],
+          unit: ' parts'
+        },
+        chainFission: {
+          name: 'Chain Fission',
+          desc: 'Allows triggered fission to be used multiple times in one launch.',
+          levels: [1, 2, 3],
+          costs: [50, 50],
+          unit: ' uses'
+        },
+        kineticImpact: {
+          name: 'Kinetic Impact',
+          desc: 'Increases the destruction radius around the probe.',
+          levels: [1.0, 1.1, 1.2, 1.3, 1.4],
+          costs: [8, 25, 60, 150],
+          unit: 'x radius'
+        },
+        gravityDampener: {
+          name: 'Gravity Dampener',
+          desc: 'Briefly reduce gravity effect on the probe.',
+          levels: [0, 1],
+          costs: [50],
+          unit: '',
+          wip: true
+        },
+        subProbes: {
+          name: 'Sub-Probes',
+          desc: 'Spawns mini-probes that seek out stations.',
+          levels: [0, 1, 2, 3],
+          costs: [100, 300, 800],
+          unit: ' probes',
+          wip: true
+        },
+        planetaryLaunch: {
+          name: 'Planetary Launch',
+          desc: 'Allows launching the meteor from a planet\'s rim.',
+          levels: [0, 1],
+          costs: [20],
+          unit: ''
+        },
+        timeDilation: {
+          name: 'Time Dilation',
+          desc: 'Unlocks micro-speed precision aiming with <kbd>Shift</kbd>.',
+          levels: [0, 1],
+          costs: [10],
+          unit: ''
+        },
+        multikillSystem: {
+          name: 'Multikill System',
+          desc: 'Stations killed in a single launch double the points awarded.',
+          levels: [0, 1],
+          costs: [50],
+          unit: ''
+        }
+      };
+
+      // ---------- World state ----------
+      let W = 0, H = 0, DPR = 1;
+      let seed = niceSeed();
+      let rng = mulberry32(hashSeed(seed));
+
+      const world = {
+        stars: [],
+        planets: [],
+        stations: [],
+        meteor: null,
+        step: 0,
+        score: 0,
+        phase: 'menu', // menu -> aimEntry -> aimSpeed -> sim
+        entryPoint: null,
+        aimPoint: null,
+        vignette: null,
+
+        preview: [],
+        previewDirty: true,
+        lastPreviewAt: 0,
+
+        launcherPlanet: null,
+        warp: 1,
+        dotDown: false,
+        commaDown: false,
+
+        pp: 0,
+        skills: {
+          predictiveProcessing: 0,
+          binaryFission: 0,
+          chainFission: 0,
+          kineticImpact: 0,
+          gravityDampener: 0,
+          subProbes: 0,
+          planetaryLaunch: 0,
+          timeDilation: 0,
+          multikillSystem: 0
+        },
+        fissionsUsed: 0,
+        killsThisLaunch: 0,
+        meteors: [], // Supporting multiple meteors for Binary Fission
+        asteroids: [],
+        totalStations: 0,
+      };
+
+      // ---------- Persistence ----------
+      function saveProgress() {
+        const data = {
+          pp: world.pp,
+          skills: world.skills
+        };
+        localStorage.setItem('meteor_slingshot_progress', JSON.stringify(data));
+      }
+
+      function loadProgress() {
+        const saved = localStorage.getItem('meteor_slingshot_progress');
+        if (saved) {
+          const data = JSON.parse(saved);
+          world.pp = data.pp || 0;
+          if (data.skills) {
+            for (const key in data.skills) {
+              if (world.skills.hasOwnProperty(key)) {
+                world.skills[key] = data.skills[key];
+              }
+            }
+          }
+        }
+        updateHUD();
+      }
+
+      function updateHUD() {
+        const destroyedCount = world.stations.filter(st => !st.alive).length;
+        destroyedCountEl.textContent = destroyedCount;
+        totalCountEl.textContent = world.totalStations;
+        ppEl.textContent = world.pp;
+        stPpEl.textContent = world.pp;
+
+        if (world.totalStations === 0) {
+          btnNextSystem.style.display = 'block';
+          btnNextSystem.textContent = "nothing here.. Move to the Next system >";
+        } else if (destroyedCount >= world.totalStations) {
+          btnNextSystem.style.display = 'block';
+          btnNextSystem.textContent = "Move to the Next system >";
+        } else {
+          btnNextSystem.style.display = 'none';
+        }
+      }
+
+      // Single view now (2D-only). Keep the nice look for both planning + watching.
+      function proj(x, y) { return { x, y, s: 1 }; }
+
+      function resize() {
+        DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        W = Math.floor(window.innerWidth);
+        H = Math.floor(window.innerHeight);
+        canvas.width = Math.floor(W * DPR);
+        canvas.height = Math.floor(H * DPR);
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        const cx = W / 2, cy = H / 2;
+        const vg = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.15, cx, cy, Math.max(W, H) * 0.7);
+        vg.addColorStop(0, 'rgba(0,0,0,0)');
+        vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+        world.vignette = vg;
+      }
+
+      // ---------- Generation ----------
+      function transitionToNewSystem() {
+        fadeOverlay.classList.add('active');
+        setTimeout(() => {
+          const cleared = world.stations.length > 0 && world.stations.every(s => !s.alive);
+          if (!cleared) {
+            world.pp = Math.max(0, world.pp - 2);
+          }
+          regen(niceSeed());
+          saveProgress();
+          setTimeout(() => {
+            fadeOverlay.classList.remove('active');
+          }, 100);
+        }, 800);
+      }
+
+      function createStar(cx, cy, type = 'average') {
+        const baseMass = 2.8e4;
+        const baseRadius = Math.min(W, H) * 0.04;
+        let mass = baseMass;
+        let r = baseRadius * (0.9 + rng() * 0.2);
+        let colorProps = { core: 'rgba(255,245,220,0.95)', glow: 'rgba(255,225,150,0.18)' };
+        let special = {};
+
+        switch (type) {
+          case 'dwarf':
+            mass = baseMass * 0.5;
+            r = baseRadius * (0.35 + rng() * 0.15);
+            const dwarfColors = [
+              { core: '#8ab4ff', glow: 'rgba(138, 180, 255, 0.4)' }, // O
+              { core: '#add8e6', glow: 'rgba(173, 216, 230, 0.4)' }, // B
+              { core: '#ffffff', glow: 'rgba(255, 255, 255, 0.4)' }, // A
+              { core: '#fffacd', glow: 'rgba(255, 250, 205, 0.4)' }, // F
+              { core: '#ffffd0', glow: 'rgba(255, 255, 0, 0.3)' },   // G
+              { core: '#ffcc88', glow: 'rgba(255, 165, 0, 0.3)' },   // K
+              { core: '#ff8888', glow: 'rgba(255, 69, 0, 0.3)' }    // M
+            ];
+            colorProps = dwarfColors[Math.floor(rng() * dwarfColors.length)];
+            break;
+          case 'red_giant':
+            mass = baseMass * 2.2;
+            r = baseRadius * (1.6 + rng() * 0.4);
+            colorProps = { core: '#ff5533', glow: 'rgba(255, 85, 51, 0.3)' };
+            break;
+          case 'pulsar':
+            mass = baseMass * 3.2;
+            r = baseRadius * 0.18;
+            colorProps = { core: '#fff', glow: 'rgba(220, 240, 255, 0.8)' };
+            special = { pulse: 0, beamAngle: rng() * Math.PI * 2 };
+            break;
+          case 'black_hole':
+            mass = baseMass * 5.2;
+            r = baseRadius * 0.45;
+            colorProps = { core: '#000', glow: 'rgba(138, 180, 255, 0.6)' };
+            special = { accretion: [] };
+            for (let i = 0; i < 5; i++) {
+              special.accretion.push({
+                a: rng() * Math.PI * 2,
+                rot: (0.02 + rng() * 0.04) * (rng() < 0.5 ? 1 : -1),
+                r1: r * (1.4 + i * 0.35),
+                r2: r * (0.3 + i * 0.1),
+                color: i % 2 === 0 ? 'rgba(138, 180, 255, 0.5)' : 'rgba(255, 180, 100, 0.4)',
+                thick: 1 + rng() * 2
+              });
+            }
+            break;
+          case 'supernova':
+            mass = baseMass * 1.4;
+            r = baseRadius * 2.8;
+            colorProps = { core: 'transparent', glow: 'transparent' };
+            special = { clouds: [] };
+            const cloudsCols = [
+              'rgba(140, 180, 255, 0.12)',
+              'rgba(255, 120, 255, 0.12)',
+              'rgba(100, 255, 230, 0.12)',
+              'rgba(255, 200, 100, 0.08)'
+            ];
+            for (let i = 0; i < 10; i++) {
+              special.clouds.push({
+                ox: (rng() - 0.5) * r * 0.7,
+                oy: (rng() - 0.5) * r * 0.7,
+                r: r * (0.4 + rng() * 0.5),
+                color: cloudsCols[Math.floor(rng() * cloudsCols.length)],
+                phase: rng() * Math.PI * 2,
+                speed: 0.2 + rng() * 0.3
+              });
+            }
+            break;
+        }
+
+        return {
+          x: cx, y: cy, mass, r, type, ...colorProps, ...special,
+          orbit: 0, ang: 0, omega: 0
+        };
+      }
+
+      function regen(newSeed = null) {
+        if (newSeed) seed = newSeed;
+        rng = mulberry32(hashSeed(seed));
+        seedEl.textContent = seed;
+
+        world.step = 0;
+        world.score = 0;
+        world.phase = 'aimEntry';
+        world.entryPoint = null;
+        world.aimPoint = null;
+        world.meteor = null;
+        world.meteors = [];
+        world.fissionsUsed = 0;
+        world.preview = [];
+        world.previewDirty = true;
+        world.asteroids = [];
+        world.totalStations = 0;
+
+        updateHUD();
+
+        const cx = W / 2, cy = H / 2;
+
+        world.stars = [];
+        const starPick = rng();
+        let starType = 'average';
+        if (starPick < 0.20) starType = 'dwarf';
+        else if (starPick < 0.70) starType = 'average';
+        else if (starPick < 0.80) starType = 'red_giant';
+        else if (starPick < 0.85) starType = 'pulsar';
+        else if (starPick < 0.90) starType = 'black_hole';
+        else starType = 'supernova';
+
+        const isBinary = rng() < 0.35;
+
+        // Format star type display
+        const formatType = (t) => t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        let typeStr = formatType(starType);
+        if (isBinary) typeStr = "Binary " + typeStr;
+        starTypeEl.textContent = typeStr;
+
+        if (!isBinary) {
+          world.stars.push(createStar(cx, cy, starType));
+        } else {
+          const dist = Math.min(W, H) * (0.05 + rng() * 0.06);
+          const s1 = createStar(cx, cy, starType);
+          const s2 = createStar(cx, cy, rng() < 0.3 ? starType : 'average');
+
+          // Distribute mass/orbits
+          const massTotal = s1.mass + s2.mass;
+          const r1 = dist * (s2.mass / massTotal);
+          const r2 = dist * (s1.mass / massTotal);
+          const ang = rng() * Math.PI * 2;
+          const omega = 0.55 * Math.pow(40 / dist, 1.2);
+
+          s1.orbit = r1; s1.ang = ang; s1.omega = omega;
+          s1.x = cx + Math.cos(ang) * r1; s1.y = cy + Math.sin(ang) * r1;
+          s2.orbit = r2; s2.ang = ang + Math.PI; s2.omega = omega;
+          s2.x = cx + Math.cos(s2.ang) * r2; s2.y = cy + Math.sin(s2.ang) * r2;
+
+          world.stars.push(s1, s2);
+        }
+
+        world.planets = [];
+        world.stations = [];
+
+        const n = Math.floor(rng() * 4);
+        const baseOrbit = Math.min(W, H) * 0.12;
+
+        for (let i = 0; i < n; i++) {
+          const orbit = baseOrbit + i * (Math.min(W, H) * 0.085) + rng() * (Math.min(W, H) * 0.03);
+          const ang = rng() * Math.PI * 2;
+          const isGas = rng() < 0.4;
+          const r = (isGas ? (16 + rng() * 18) : (10 + rng() * 12));
+          const mass = (isGas ? (5.2e3 + rng() * 3.0e3) : (2.8e3 + rng() * 2.2e3));
+
+          const rocky = [
+            ['rgba(210,170,140,0.95)', 'rgba(255,206,170,0.18)'],
+            ['rgba(160,190,210,0.95)', 'rgba(160,220,255,0.14)'],
+            ['rgba(220,205,175,0.95)', 'rgba(255,235,200,0.14)'],
+            ['rgba(185,165,205,0.95)', 'rgba(210,190,255,0.16)'],
+          ];
+          const gas = [
+            ['rgba(155,210,220,0.95)', 'rgba(170,245,255,0.20)'],
+            ['rgba(210,175,225,0.95)', 'rgba(255,200,255,0.16)'],
+            ['rgba(205,225,175,0.95)', 'rgba(230,255,200,0.14)'],
+            ['rgba(235,205,150,0.95)', 'rgba(255,235,190,0.14)'],
+          ];
+          const [core, glow] = (isGas ? gas : rocky)[Math.floor(rng() * 4)];
+          const hasRings = isGas && rng() < 0.45;
+
+          // orbital speed: farther = slower
+          const omega = 0.32 * Math.pow((baseOrbit / orbit), 1.25);
+
+          const p = {
+            orbit, ang, omega,
+            x: cx + Math.cos(ang) * orbit,
+            y: cy + Math.sin(ang) * orbit,
+            r, mass, isGas, core, glow, hasRings,
+          };
+          world.planets.push(p);
+
+          const stationsCount = 2 + Math.floor(rng() * 4);
+          for (let s = 0; s < stationsCount; s++) {
+            const a = rng() * Math.PI * 2;
+            const rad = r + 18 + rng() * 22;
+            const omegaS = (0.45 + rng() * 0.45) * (1 / (rad / 45));
+            world.stations.push({
+              planet: p,
+              a,
+              omega: omegaS,
+              rad,
+              x: p.x + Math.cos(a) * rad,
+              y: p.y + Math.sin(a) * rad,
+              alive: true,
+              size: 4 + rng() * 3,
+            });
+          }
+        }
+
+        // Asteroid Belt (10% chance)
+        if (rng() < 0.33) { // 1/3 chance
+          const beltOrbit = Math.min(W, H) * (0.35 + rng() * 0.25);
+          const density = 80 + Math.floor(rng() * 140);
+          const beltOmega = 0.15 * Math.pow((baseOrbit * 2 / beltOrbit), 1.25);
+
+          for (let i = 0; i < density; i++) {
+            const ang = rng() * Math.PI * 2;
+            const dist = beltOrbit + (rng() - 0.5) * (Math.min(W, H) * 0.06);
+            const r = 1.5 + rng() * 2.5;
+            world.asteroids.push({
+              orbit: dist,
+              ang,
+              omega: beltOmega * (0.8 + rng() * 0.4),
+              x: cx + Math.cos(ang) * dist,
+              y: cy + Math.sin(ang) * dist,
+              r,
+            });
+          }
+        }
+        world.totalStations = world.stations.length;
+        updateHUD();
+      }
+
+      function updateOrbits(dt) {
+        const cx = W / 2, cy = H / 2;
+
+        for (const s of world.stars) {
+          if (s.omega !== 0) {
+            s.ang += s.omega * dt;
+            s.x = cx + Math.cos(s.ang) * s.orbit;
+            s.y = cy + Math.sin(s.ang) * s.orbit;
+          }
+
+          if (s.type === 'pulsar') {
+            s.pulse = (s.pulse || 0) + dt * 5;
+            s.beamAngle += dt * 1.5;
+          } else if (s.type === 'black_hole') {
+            for (const acc of s.accretion) {
+              acc.a += acc.rot;
+            }
+          } else if (s.type === 'supernova') {
+            for (const c of s.clouds) {
+              c.phase += dt * c.speed;
+            }
+          }
+        }
+
+        for (const p of world.planets) {
+          p.ang += p.omega * dt;
+          p.x = cx + Math.cos(p.ang) * p.orbit;
+          p.y = cy + Math.sin(p.ang) * p.orbit;
+        }
+
+        for (const st of world.stations) {
+          st.a += st.omega * dt;
+          const p = st.planet;
+          st.x = p.x + Math.cos(st.a) * st.rad;
+          st.y = p.y + Math.sin(st.a) * st.rad;
+        }
+
+        for (const ast of world.asteroids) {
+          ast.ang += ast.omega * dt;
+          ast.x = cx + Math.cos(ast.ang) * ast.orbit;
+          ast.y = cy + Math.sin(ast.ang) * ast.orbit;
+        }
+      }
+
+      // ---------- Input ----------
+      function screenToWorld(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left);
+        const y = (e.clientY - rect.top);
+        return { x, y };
+      }
+
+      function pickPerimeterPoint(p) {
+        const cx = W / 2, cy = H / 2;
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const ang = Math.atan2(dy, dx);
+        const R = Math.max(W, H) * 0.56;
+        return { x: cx + Math.cos(ang) * R, y: cy + Math.sin(ang) * R, ang, R };
+      }
+
+      function pickPlanetAtPoint(p) {
+        let best = null;
+        let bestD2 = Infinity;
+        for (const pl of world.planets) {
+          const d2 = len2(p.x - pl.x, p.y - pl.y);
+          if (d2 <= pl.r * pl.r && d2 < bestD2) {
+            best = pl;
+            bestD2 = d2;
+          }
+        }
+        return best;
+      }
+
+      function pointOnPlanetRim(pl, p) {
+        const dx = p.x - pl.x;
+        const dy = p.y - pl.y;
+        const a = Math.atan2(dy, dx);
+        const pad = 7;
+        return {
+          x: pl.x + Math.cos(a) * (pl.r + pad),
+          y: pl.y + Math.sin(a) * (pl.r + pad),
+          ang: a,
+          R: pl.r + pad,
+        };
+      }
+
+      function setHint() {
+        if (world.phase === 'menu') {
+          hintEl.innerHTML = "";
+          return;
+        }
+        if (world.phase === 'aimEntry') {
+          hintEl.innerHTML = "Click a planet to launch from it, or click anywhere to enter from the edge. <kbd>K</kbd> Evolution.";
+        } else if (world.phase === 'aimSpeed') {
+          hintEl.innerHTML = "Aim sets direction + speed. Preview predicts the path. Hold <kbd>Shift</kbd> for micro-speed. <kbd>,</kbd> and <kbd>.</kbd> to warp time. <kbd>K</kbd> Evolution.";
+        } else {
+          const maxFissions = SKILLS.chainFission.levels[world.skills.chainFission];
+          const fissionsLeft = Math.max(0, maxFissions - world.fissionsUsed);
+          const fissionStatus = maxFissions > 1 ? ` (${fissionsLeft} left)` : '';
+          hintEl.innerHTML = `Slingshot time. <kbd>E</kbd> Fission${fissionStatus}. <kbd>,</kbd> 0.25x or <kbd>.</kbd> 4x time. <kbd>Space</kbd> shoot again. <kbd>R</kbd> new system. <kbd>K</kbd> Evolution.`;
+        }
+      }
+
+      function toggleSkillTree() {
+        if (skillTreeEl.classList.contains('active')) {
+          skillTreeEl.classList.remove('active');
+          if (world.phase === 'menu') {
+            mainMenuEl.classList.remove('hidden');
+          }
+        } else {
+          renderSkillTree();
+          skillTreeEl.classList.add('active');
+          mainMenuEl.classList.add('hidden');
+        }
+      }
+
+      function startGame() {
+        world.phase = 'aimEntry';
+        mainMenuEl.classList.add('hidden');
+        setHint();
+      }
+
+      btnStart.addEventListener('click', startGame);
+      btnEvolution.addEventListener('click', toggleSkillTree);
+      btnSettings.addEventListener('click', toggleSettings);
+      btnCloseSettings.addEventListener('click', toggleSettings);
+      btnResetProgress.addEventListener('click', resetProgress);
+      btnNextSystem.addEventListener('click', transitionToNewSystem);
+
+      function toggleSettings() {
+        if (settingsMenuEl.classList.contains('active')) {
+          settingsMenuEl.classList.remove('active');
+          if (world.phase === 'menu') {
+            mainMenuEl.classList.remove('hidden');
+          }
+        } else {
+          settingsMenuEl.classList.add('active');
+          mainMenuEl.classList.add('hidden');
+        }
+      }
+
+      function resetProgress() {
+        if (confirm("RECORDS CLEARANCE: Are you sure you want to wipe all evolution data? This cannot be undone.")) {
+          world.pp = 0;
+          for (const key in world.skills) {
+            world.skills[key] = 0;
+          }
+          saveProgress();
+          updateHUD();
+          renderSkillTree();
+          alert("Evolution data wiped. Unit recalibrated.");
+          toggleSettings();
+        }
+      }
+
+      function renderSkillTree() {
+        skillGridEl.innerHTML = '';
+        for (const [id, skill] of Object.entries(SKILLS)) {
+          const currentLevel = world.skills[id];
+          const isMax = currentLevel >= skill.costs.length;
+          const nextCost = isMax ? null : skill.costs[currentLevel];
+          const canAfford = nextCost !== null && world.pp >= nextCost;
+          const currentVal = skill.levels[currentLevel];
+
+          const card = document.createElement('div');
+          card.className = 'skill-card';
+          card.innerHTML = `
+            <div class="skill-name">${skill.name}${skill.wip ? '<span class="wip">WIP</span>' : ''}</div>
+            <div class="skill-desc">${skill.desc}</div>
+            <div class="skill-stats">Current: ${currentVal}${skill.unit} ${isMax ? '(MAX)' : `➔ ${skill.levels[currentLevel + 1]}${skill.unit}`}</div>
+            <button class="btn-upgrade" ${(!canAfford || (skill.wip && currentLevel > 0)) ? 'disabled' : ''} onclick="upgradeSkill('${id}')">
+              ${isMax ? 'MAXED' : (skill.wip && currentLevel > 0 ? 'WIP' : `Upgrade (${nextCost} PP)`)}
+            </button>
+          `;
+          skillGridEl.appendChild(card);
+        }
+      }
+
+      window.upgradeSkill = (id) => {
+        const skill = SKILLS[id];
+        const currentLevel = world.skills[id];
+        const nextCost = skill.costs[currentLevel];
+        if (world.pp >= nextCost) {
+          world.pp -= nextCost;
+          world.skills[id]++;
+          saveProgress();
+          updateHUD();
+          renderSkillTree();
+        }
+      };
+
+      let shiftDown = false;
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Shift') shiftDown = true;
+
+        if (e.key === '.') world.dotDown = true;
+        if (e.key === ',') world.commaDown = true;
+        world.warp = (world.dotDown ? 4 : 1) * (world.commaDown ? 0.25 : 1);
+
+        if (e.key.toLowerCase() === 'r') transitionToNewSystem();
+        if (e.key.toLowerCase() === 'k') toggleSkillTree();
+
+        if (e.key.toLowerCase() === 'e' && world.phase === 'sim') {
+          explodeMeteor();
+        }
+
+        if (e.key === 'Escape') {
+          if (skillTreeEl.classList.contains('active')) {
+            toggleSkillTree();
+          } else if (world.phase !== 'menu') {
+            world.phase = 'menu';
+            mainMenuEl.classList.remove('hidden');
+            setHint();
+          }
+        }
+
+        if (e.key === ' ' && world.phase !== 'menu') {
+          world.phase = 'aimEntry';
+          world.entryPoint = null;
+          world.aimPoint = null;
+          world.meteor = null;
+          world.preview = [];
+          world.previewDirty = true;
+          world.launcherPlanet = null;
+          setHint();
+        }
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.key === 'Shift') shiftDown = false;
+
+        if (e.key === '.') world.dotDown = false;
+        if (e.key === ',') world.commaDown = false;
+        world.warp = (world.dotDown ? 4 : 1) * (world.commaDown ? 0.25 : 1);
+      });
+
+      canvas.addEventListener('pointerdown', (e) => {
+        if (world.phase === 'menu') return;
+        const p = screenToWorld(e);
+
+        if (world.phase === 'aimEntry') {
+          const pl = pickPlanetAtPoint(p);
+          if (pl && world.skills.planetaryLaunch > 0) {
+            world.launcherPlanet = pl;
+            world.entryPoint = pointOnPlanetRim(pl, p);
+          } else {
+            world.launcherPlanet = null;
+            world.entryPoint = pickPerimeterPoint(p);
+          }
+
+          world.phase = 'aimSpeed';
+          world.previewDirty = true;
+          setHint();
+          return;
+        }
+
+        if (world.phase === 'aimSpeed') {
+          world.aimPoint = p;
+
+          const ep = world.entryPoint;
+          const dirx = (p.x - ep.x);
+          const diry = (p.y - ep.y);
+          const d = Math.max(1, len(dirx, diry));
+
+          const hasTimeDilation = world.skills.timeDilation > 0;
+          const slow = (shiftDown && hasTimeDilation) ? SHIFT_SLOW_FACTOR : 1;
+          const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+          const vx = (dirx / d) * v;
+          const vy = (diry / d) * v;
+
+          world.meteor = {
+            x: ep.x,
+            y: ep.y,
+            vx,
+            vy,
+            r: 4.2,
+            trail: [],
+            alive: true,
+            launcherPlanet: world.launcherPlanet,
+          };
+
+          world.meteors = [world.meteor];
+          world.step = 0;
+          world.fissionsUsed = 0;
+          world.killsThisLaunch = 0;
+          world.phase = 'sim';
+          setHint();
+          return;
+        }
+
+        if (world.phase === 'sim') {
+          // click also resets (space exists too)
+          world.phase = 'aimEntry';
+          world.entryPoint = null;
+          world.aimPoint = null;
+          world.meteor = null;
+          world.preview = [];
+          world.previewDirty = true;
+          setHint();
+        }
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (world.phase !== 'aimSpeed') return;
+        world.aimPoint = screenToWorld(e);
+        world.previewDirty = true;
+      });
+
+      function explodeMeteor() {
+        if (!world.meteors.length) return;
+        const level = world.skills.binaryFission;
+        const numParts = SKILLS.binaryFission.levels[level];
+        if (numParts <= 1) return;
+
+        const maxFissions = SKILLS.chainFission.levels[world.skills.chainFission];
+        if (world.fissionsUsed >= maxFissions) return;
+
+        const newMeteors = [];
+        world.fissionsUsed++;
+        for (const m of world.meteors) {
+          if (!m.alive) continue;
+
+          // Split this meteor into numParts
+          for (let i = 0; i < numParts; i++) {
+            const angleOffset = (i - (numParts - 1) / 2) * 0.15;
+            const cos = Math.cos(angleOffset);
+            const sin = Math.sin(angleOffset);
+
+            // Rotate velocity
+            const vx = m.vx * cos - m.vy * sin;
+            const vy = m.vx * sin + m.vy * cos;
+
+            newMeteors.push({
+              ...m,
+              vx,
+              vy,
+              trail: [...m.trail],
+              // Don't carry over launcher planet info to new fragments to allow them to hit it? 
+              // Actually, keeping it is safer to prevent immediate self-destruction.
+            });
+          }
+          m.alive = false; // Original is replaced
+        }
+        world.meteors = [...world.meteors.filter(m => m.alive), ...newMeteors];
+        spawnBurst(world.meteors[0].x, world.meteors[0].y, 10);
+        setHint();
+      }
+
+      // ---------- Physics ----------
+      function gravAccelAt(x, y, snapshotBodies = null) {
+        let ax = 0, ay = 0;
+
+        const bodies = snapshotBodies || [...world.stars, ...world.planets];
+        for (const b of bodies) {
+          const dx = b.x - x;
+          const dy = b.y - y;
+          const r2 = dx * dx + dy * dy + SOFTEN * SOFTEN;
+          const invR = 1 / Math.sqrt(r2);
+          const invR3 = invR * invR * invR;
+          const s = G * b.mass * invR3;
+          ax += dx * s;
+          ay += dy * s;
+        }
+
+        return { ax, ay };
+      }
+
+      function integrate() {
+        if (world.phase !== 'sim') return;
+
+        const aliveMeteors = world.meteors.filter(m => m.alive);
+        if (!aliveMeteors.length) {
+          world.phase = 'aimEntry'; // Or wait for user? Current logic auto-resets if all dead?
+          // Actually, let's just let the user press Space.
+          return;
+        }
+
+        for (const m of aliveMeteors) {
+          const a = gravAccelAt(m.x, m.y);
+          m.vx += a.ax * DT;
+          m.vy += a.ay * DT;
+          m.x += m.vx * DT;
+          m.y += m.vy * DT;
+
+          m.trail.push({ x: m.x, y: m.y });
+          if (m.trail.length > 160) m.trail.shift();
+
+          // Collisions: stations
+          const radiusMult = SKILLS.kineticImpact.levels[world.skills.kineticImpact];
+          for (const st of world.stations) {
+            if (!st.alive) continue;
+            const d2 = len2(m.x - st.x, m.y - st.y);
+            const hitR = (st.size + m.r * radiusMult + 3);
+            if (d2 <= hitR * hitR) {
+              st.alive = false;
+
+              let pts = 1;
+              if (world.skills.multikillSystem > 0) {
+                pts = Math.pow(2, world.killsThisLaunch);
+                world.killsThisLaunch++;
+              }
+
+              world.pp += pts;
+              world.score++;
+              updateHUD();
+              spawnBurst(st.x, st.y, 14);
+            }
+          }
+
+          // Collisions: planets / star
+          const bodies = [...world.stars, ...world.planets];
+          for (const b of bodies) {
+            if (m.launcherPlanet && b === m.launcherPlanet) continue;
+            const d = len(m.x - b.x, m.y - b.y);
+            if (d < b.r * 0.92) {
+              m.alive = false;
+              spawnBurst(m.x, m.y, 22);
+              break;
+            }
+          }
+
+          // Collisions: asteroids
+          for (const ast of world.asteroids) {
+            const d2 = len2(m.x - ast.x, m.y - ast.y);
+            const hitR = (ast.r + m.r * 0.8);
+            if (d2 <= hitR * hitR) {
+              m.alive = false;
+              spawnBurst(m.x, m.y, 12);
+              break;
+            }
+          }
+
+          const margin = Math.max(W, H) * 0.72;
+          const cx = W / 2, cy = H / 2;
+          if (len(m.x - cx, m.y - cy) > margin) m.alive = false;
+        }
+
+        world.step++;
+      }
+
+      // ---------- Trajectory preview ----------
+      function computePreview() {
+        if (world.phase !== 'aimSpeed' || !world.entryPoint || !world.aimPoint) {
+          world.preview = [];
+          return;
+        }
+
+        const now = performance.now();
+        if (now - world.lastPreviewAt < PREVIEW_THROTTLE_MS) return;
+        world.lastPreviewAt = now;
+
+        const ep = world.entryPoint;
+        const p = world.aimPoint;
+
+        const dirx = (p.x - ep.x);
+        const diry = (p.y - ep.y);
+        const d = Math.max(1, len(dirx, diry));
+
+        const slow = (shiftDown && world.skills.timeDilation > 0) ? SHIFT_SLOW_FACTOR : 1;
+        const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+        let vx = (dirx / d) * v;
+        let vy = (diry / d) * v;
+
+        let x = ep.x;
+        let y = ep.y;
+
+        // snapshot bodies for preview stability/readability
+        const bodies = [...world.stars.map(s => ({ ...s })), ...world.planets.map(pp => ({ x: pp.x, y: pp.y, mass: pp.mass, r: pp.r }))];
+
+        const pts = [];
+        const cx = W / 2, cy = H / 2;
+        const margin = Math.max(W, H) * 0.72;
+
+        const skillLevel = world.skills.predictiveProcessing;
+        const steps = SKILLS.predictiveProcessing.levels[skillLevel];
+
+        for (let i = 0; i < steps; i++) {
+          const a = gravAccelAt(x, y, bodies);
+          vx += a.ax * PREVIEW_DT;
+          vy += a.ay * PREVIEW_DT;
+          x += vx * PREVIEW_DT;
+          y += vy * PREVIEW_DT;
+
+          pts.push({ x, y });
+
+          if (len(x - cx, y - cy) > margin) break;
+
+          let hit = false;
+          for (const s of world.stars) {
+            if (len(x - s.x, y - s.y) < s.r * 0.92) { hit = true; break; }
+          }
+          if (!hit) {
+            for (const pl of world.planets) {
+              if (world.launcherPlanet && pl === world.launcherPlanet) continue;
+              if (len(x - pl.x, y - pl.y) < pl.r * 0.92) { hit = true; break; }
+            }
+          }
+          if (!hit) {
+            for (const ast of world.asteroids) {
+              if (len(x - ast.x, y - ast.y) < (ast.r + 3)) { hit = true; break; }
+            }
+          }
+          if (hit) break;
+        }
+
+        world.preview = pts;
+        world.previewDirty = false;
+      }
+
+      // ---------- Particles ----------
+      const sparks = [];
+      function spawnBurst(x, y, n) {
+        for (let i = 0; i < n; i++) {
+          const a = rng() * Math.PI * 2;
+          const v = 40 + rng() * 180;
+          sparks.push({
+            x, y,
+            vx: Math.cos(a) * v,
+            vy: Math.sin(a) * v,
+            life: 0.6 + rng() * 0.6,
+            t: 0,
+            r: 1 + rng() * 1.8,
+          });
+        }
+      }
+
+      function stepSparks() {
+        for (let i = sparks.length - 1; i >= 0; i--) {
+          const s = sparks[i];
+          s.t += DT;
+          s.x += s.vx * DT;
+          s.y += s.vy * DT;
+          s.vx *= 0.985;
+          s.vy *= 0.985;
+          if (s.t > s.life) sparks.splice(i, 1);
+        }
+      }
+
+      // ---------- Rendering ----------
+      function drawBackground() {
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, '#040615');
+        g.addColorStop(0.5, '#050a1f');
+        g.addColorStop(1, '#02030c');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        const starCount = Math.floor((W * H) / 35000);
+        const r0 = mulberry32(hashSeed(seed + ':stars'));
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        for (let i = 0; i < starCount; i++) {
+          const x = r0() * W;
+          const y = r0() * H;
+          const s = r0();
+          const a = 0.25 + r0() * 0.55;
+          ctx.fillStyle = `rgba(220,240,255,${a})`;
+          ctx.fillRect(x, y, s < 0.75 ? 1 : 2, 1);
+        }
+        ctx.restore();
+
+        ctx.fillStyle = world.vignette;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      function drawOrbits() {
+        const cx = W / 2, cy = H / 2;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140,190,255,0.05)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 9]);
+        for (const p of world.planets) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, p.orbit, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawStars() {
+        for (const s0 of world.stars) {
+          if (s0.type === 'supernova') {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (const c of s0.clouds) {
+              const ox = c.ox + Math.cos(c.phase) * (s0.r * 0.05);
+              const oy = c.oy + Math.sin(c.phase * 0.8) * (s0.r * 0.05);
+              const g = ctx.createRadialGradient(s0.x + ox, s0.y + oy, 0, s0.x + ox, s0.y + oy, c.r);
+              g.addColorStop(0, c.color);
+              g.addColorStop(1, 'rgba(0,0,0,0)');
+              ctx.fillStyle = g;
+              ctx.beginPath();
+              ctx.arc(s0.x + ox, s0.y + oy, c.r, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.restore();
+            continue;
+          }
+
+          if (s0.type === 'black_hole') {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            for (const acc of s0.accretion) {
+              ctx.save();
+              ctx.translate(s0.x, s0.y);
+              ctx.rotate(acc.a);
+              ctx.strokeStyle = acc.color;
+              ctx.lineWidth = acc.thick;
+              ctx.beginPath();
+              ctx.ellipse(0, 0, acc.r1, acc.r2, 0, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+            ctx.restore();
+            // Horizon
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(s0.x, s0.y, s0.r, 0, Math.PI * 2);
+            ctx.fill();
+            // Sharp glow ring
+            ctx.strokeStyle = 'rgba(138, 180, 255, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(s0.x, s0.y, s0.r + 1, 0, Math.PI * 2);
+            ctx.stroke();
+            continue;
+          }
+
+          if (s0.type === 'pulsar') {
+            const p = (Math.sin(s0.pulse) + 1) * 0.5;
+            const glowR = s0.r * (2 + p * 1.5);
+            glowCircle(s0.x, s0.y, s0.r, s0.core, s0.glow, glowR);
+
+            // Beams
+            ctx.save();
+            ctx.translate(s0.x, s0.y);
+            ctx.rotate(s0.beamAngle);
+            ctx.globalCompositeOperation = 'lighter';
+            const beamL = Math.max(W, H);
+            const beamW = s0.r * 1.5;
+            const g = ctx.createLinearGradient(0, -beamL, 0, beamL);
+            g.addColorStop(0, 'rgba(200, 230, 255, 0)');
+            g.addColorStop(0.5, 'rgba(200, 230, 255, 0.6)');
+            g.addColorStop(1, 'rgba(200, 230, 255, 0)');
+            ctx.fillStyle = g;
+
+            ctx.beginPath();
+            ctx.moveTo(-beamW, -beamL);
+            ctx.lineTo(beamW, -beamL);
+            ctx.lineTo(0.5, 0);
+            ctx.lineTo(-0.5, 0);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-beamW, beamL);
+            ctx.lineTo(beamW, beamL);
+            ctx.lineTo(0.5, 0);
+            ctx.lineTo(-0.5, 0);
+            ctx.fill();
+            ctx.restore();
+            continue;
+          }
+
+          // Default / Giant / Dwarf
+          const glowR = s0.r * (s0.type === 'red_giant' ? 3.8 : 3.2);
+          glowCircle(s0.x, s0.y, s0.r, s0.core, s0.glow, glowR);
+
+          ctx.save();
+          ctx.translate(s0.x, s0.y);
+          ctx.strokeStyle = s0.glow;
+          ctx.lineWidth = 1;
+          const rays = s0.type === 'red_giant' ? 24 : 14;
+          for (let i = 0; i < rays; i++) {
+            const a = (i / rays) * Math.PI * 2 + (performance.now() * (s0.type === 'dwarf' ? 0.0006 : 0.00035));
+            const r1 = s0.r * 1.4;
+            const r2 = s0.r * (1.8 + ((i % 2) * 0.3));
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+            ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawPlanets() {
+        for (const p0 of world.planets) {
+          if (p0.hasRings) {
+            ctx.save();
+            ctx.translate(p0.x, p0.y);
+            ctx.rotate(0.45 + (p0.orbit / 220));
+            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p0.r * 1.8, p0.r * 0.75, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(180,220,255,0.07)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p0.r * 2.1, p0.r * 0.9, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          glowCircle(p0.x, p0.y, p0.r, p0.core, p0.glow, p0.r * 2.2);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(10,15,35,0.55)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(p0.x, p0.y, p0.r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      function drawStations() {
+        for (const st of world.stations) {
+          if (!st.alive) continue;
+          const x = st.x, y = st.y;
+          const s = st.size;
+
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(st.a + Math.PI / 2);
+
+          // Faint Halo
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = 'rgba(120, 210, 255, 0.12)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(0, 0, s * 2.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          // Solar Panels / Wings
+          ctx.strokeStyle = 'rgba(160, 220, 255, 0.6)';
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          // Left wing
+          ctx.moveTo(-s * 0.5, 0);
+          ctx.lineTo(-s * 2, -s * 0.3);
+          ctx.lineTo(-s * 2, s * 0.3);
+          ctx.closePath();
+          // Right wing
+          ctx.moveTo(s * 0.5, 0);
+          ctx.lineTo(s * 2, -s * 0.3);
+          ctx.lineTo(s * 2, s * 0.3);
+          ctx.closePath();
+          ctx.stroke();
+
+          // Central Elegant Core (Diamond)
+          ctx.fillStyle = 'rgba(230, 250, 255, 0.9)';
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = 'rgba(120, 210, 255, 0.8)';
+          ctx.beginPath();
+          ctx.moveTo(0, -s);
+          ctx.lineTo(s * 0.6, 0);
+          ctx.lineTo(0, s);
+          ctx.lineTo(-s * 0.6, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+        }
+      }
+
+      function drawAsteroids() {
+        if (!world.asteroids.length) return;
+        ctx.save();
+        for (let i = 0; i < world.asteroids.length; i++) {
+          const ast = world.asteroids[i];
+          const brightness = 140 + (i % 60);
+          ctx.fillStyle = `rgba(${brightness}, ${brightness + 10}, ${brightness + 30}, 0.8)`;
+
+          // Subtle glow for larger ones
+          if (ast.r > 3) {
+            ctx.shadowBlur = 4;
+            ctx.shadowColor = `rgba(${brightness}, ${brightness + 20}, 255, 0.4)`;
+          } else {
+            ctx.shadowBlur = 0;
+          }
+
+          ctx.beginPath();
+          ctx.arc(ast.x, ast.y, ast.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      function drawPreview() {
+        if (world.phase !== 'aimSpeed' || !world.preview.length) return;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.setLineDash([5, 9]);
+
+        for (let i = 1; i < world.preview.length; i++) {
+          const a = i / world.preview.length;
+          const p0 = world.preview[i - 1];
+          const p1 = world.preview[i];
+          ctx.strokeStyle = `rgba(170,240,255,${0.07 + 0.10 * a})`;
+          ctx.lineWidth = (1.2 + 1.6 * a);
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.stroke();
+        }
+
+        const last = world.preview[world.preview.length - 1];
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(220,250,255,0.22)';
+        ctx.beginPath();
+        ctx.arc(last.x, last.y, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawMeteor() {
+        for (const m of world.meteors) {
+          if (!m || (!m.alive && m.trail.length === 0)) continue;
+
+          if (m.trail.length > 1) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            for (let i = 1; i < m.trail.length; i++) {
+              const a = i / m.trail.length;
+              const p0 = m.trail[i - 1];
+              const p1 = m.trail[i];
+              ctx.strokeStyle = `rgba(140,220,255,${0.10 * a})`;
+              ctx.lineWidth = (1 + 2.5 * a);
+              ctx.beginPath();
+              ctx.moveTo(p0.x, p0.y);
+              ctx.lineTo(p1.x, p1.y);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          if (m.alive) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            glowCircle(m.x, m.y, m.r, 'rgba(230,250,255,0.95)', 'rgba(120,210,255,0.25)', 28);
+            ctx.restore();
+
+            const v = Math.hypot(m.vx, m.vy) || 1;
+            const dx = (m.vx / v) * 12;
+            const dy = (m.vy / v) * 12;
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(230,250,255,0.38)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(m.x, m.y);
+            ctx.lineTo(m.x - dx, m.y - dy);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      function drawSparks() {
+        if (!sparks.length) return;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (const s0 of sparks) {
+          const a = 1 - (s0.t / s0.life);
+          ctx.fillStyle = `rgba(170,240,255,${0.35 * a})`;
+          ctx.beginPath();
+          ctx.arc(s0.x, s0.y, s0.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      function drawAiming() {
+        if (world.phase === 'aimEntry') {
+          const cx = W / 2, cy = H / 2;
+          const R = Math.max(W, H) * 0.56;
+          ctx.save();
+          ctx.strokeStyle = 'rgba(140,190,255,0.08)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 7]);
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+          return;
+        }
+
+        if (world.phase === 'aimSpeed' && world.entryPoint) {
+          const ep = world.entryPoint;
+
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = 'rgba(150,220,255,0.25)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(ep.x, ep.y, 10, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          if (world.aimPoint) {
+            const p = world.aimPoint;
+            const dx = p.x - ep.x;
+            const dy = p.y - ep.y;
+            const d = Math.max(1, Math.hypot(dx, dy));
+
+            const slow = shiftDown ? SHIFT_SLOW_FACTOR : 1;
+            const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+            const ux = dx / d, uy = dy / d;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = 'rgba(170,240,255,0.18)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(ep.x, ep.y);
+            ctx.lineTo(ep.x + ux * (v * 0.12), ep.y + uy * (v * 0.12));
+            ctx.stroke();
+
+            const ax = ep.x + ux * (v * 0.12);
+            const ay = ep.y + uy * (v * 0.12);
+            const ang = Math.atan2(uy, ux);
+            ctx.fillStyle = 'rgba(220,250,255,0.22)';
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(ax - Math.cos(ang - 0.5) * 10, ay - Math.sin(ang - 0.5) * 10);
+            ctx.lineTo(ax - Math.cos(ang + 0.5) * 10, ay - Math.sin(ang + 0.5) * 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      }
+
+      function draw() {
+        drawBackground();
+        drawOrbits();
+        drawStars();
+        drawPlanets();
+        drawStations();
+        drawAsteroids();
+        drawPreview();
+        drawMeteor();
+        drawSparks();
+        drawAiming();
+      }
+
+      // ---------- Main loop ----------
+      let lastT = performance.now();
+      function tick() {
+        const t = performance.now();
+        const dt = Math.min(0.05, (t - lastT) / 1000);
+        lastT = t;
+
+        // Orbits / sim (time warp)
+        if (world.phase === 'aimSpeed' && world.previewDirty) computePreview();
+
+        if (world.phase === 'sim') {
+          const simDt = dt * world.warp;
+          const sub = Math.max(1, Math.ceil(simDt / (DT * 1.25)));
+          for (let i = 0; i < sub; i++) {
+            updateOrbits(simDt / sub);
+            integrate();
+          }
+        } else {
+          updateOrbits(dt);
+        }
+
+        stepSparks();
+        draw();
+        requestAnimationFrame(tick);
+      }
+
+      // ---------- Boot ----------
+      window.addEventListener('resize', () => {
+        resize();
+        regen(seed);
+      });
+
+      resize();
+      regen(seed);
+      loadProgress();
+      renderSkillTree();
+      setHint();
+      tick();
+
+    })();
+  </script>
+</body>
+
+</html>
