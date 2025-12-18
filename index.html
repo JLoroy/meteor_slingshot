@@ -164,6 +164,38 @@
       display: flex;
     }
 
+    /* Trophy Room Overlay */
+    #trophyRoom {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(15, 25, 60, 0.96) 0%, rgba(5, 8, 24, 0.98) 100%);
+      padding: 40px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      pointer-events: auto;
+      z-index: 110;
+      backdrop-filter: blur(12px);
+      color: #e2e8f0;
+      font-family: 'Exo 2', sans-serif;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #trophyRoom.active {
+      display: flex;
+    }
+
+    .trophy-locked {
+      opacity: 0.55;
+      filter: grayscale(0.25);
+    }
+
+    .trophy-locked .skill-name {
+      color: rgba(226, 232, 240, 0.7);
+    }
+
     .skill-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -361,6 +393,17 @@
       margin-left: 10px;
       color: #ff8080;
       border: 1px solid rgba(255, 100, 100, 0.3);
+      letter-spacing: 1px;
+    }
+
+    .earned {
+      font-size: 9px;
+      background: rgba(60, 255, 170, 0.12);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-left: 10px;
+      color: rgba(170, 255, 220, 0.95);
+      border: 1px solid rgba(60, 255, 170, 0.22);
       letter-spacing: 1px;
     }
 
@@ -601,6 +644,41 @@
       margin-bottom: 30px;
     }
 
+    .mode-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .btn-mode {
+      font-family: 'Orbitron', sans-serif;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(138, 180, 255, 0.18);
+      color: rgba(226, 232, 240, 0.85);
+      padding: 12px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: all 0.2s;
+    }
+
+    .btn-mode.active {
+      background: rgba(138, 180, 255, 0.12);
+      border-color: rgba(138, 180, 255, 0.55);
+      color: #ffffff;
+      box-shadow: 0 0 22px rgba(138, 180, 255, 0.18);
+    }
+
+    .mode-help {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: rgba(226, 232, 240, 0.65);
+    }
+
     .settings-label {
       font-family: 'Orbitron', sans-serif;
       font-size: 14px;
@@ -727,6 +805,7 @@
       }
 
       #skillTree,
+      #trophyRoom,
       #settingsMenu {
         padding: 18px;
       }
@@ -779,6 +858,10 @@
       .settings-container {
         padding: 22px;
       }
+
+      .mode-buttons {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -790,6 +873,7 @@
     <div class="top">
       <div class="score">Stations destroyed: <span id="destroyed-count">0</span> / <span id="total-count">0</span></div>
       <div class="score">Progress Points: <span id="pp">0</span></div>
+      <div class="score" id="modeHud"></div>
       <div class="seed">Seed: <span id="seed"></span> | <span id="star-type"></span></div>
     </div>
     <div id="comms" class="comms" aria-live="polite"></div>
@@ -813,6 +897,7 @@
     <div class="menu-actions">
       <button class="btn-menu primary" id="btnStart">Start Expedition</button>
       <button class="btn-menu" id="btnEvolution">Evolution</button>
+      <button class="btn-menu" id="btnTrophies">Trophies</button>
       <button class="btn-menu" id="btnSettings">Settings</button>
     </div>
     <div class="menu-footer">
@@ -835,9 +920,34 @@
     </div>
   </div>
 
+  <div id="trophyRoom">
+    <div class="skill-tree-header">
+      <div class="skill-tree-title">Trophy System</div>
+      <div class="skill-tree-right">
+        <div class="current-pp">Cleared: <span id="tr-cleared">0</span></div>
+      </div>
+    </div>
+    <div class="skill-grid" id="trophyGrid">
+      <!-- Trophies injected here -->
+    </div>
+    <div class="overlay-footer">
+      <button id="btnCloseTrophies" class="btn-overlay-close" aria-label="Close trophies">Close</button>
+    </div>
+  </div>
+
   <div id="settingsMenu">
     <div class="settings-container">
       <div class="settings-title">System Settings</div>
+
+      <div class="settings-section">
+        <label class="settings-label">Gameplay Mode</label>
+        <div class="mode-buttons">
+          <button class="btn-mode" data-mode="normal" id="btnModeNormal">Normal</button>
+          <button class="btn-mode" data-mode="timed" id="btnModeTimed">Timed</button>
+          <button class="btn-mode" data-mode="limited" id="btnModeLimited">Limited</button>
+        </div>
+        <div class="mode-help" id="modeHelp"></div>
+      </div>
 
       <div class="settings-section">
         <label class="settings-label">Data Management</label>
@@ -863,12 +973,17 @@
       const commsEl = document.getElementById('comms');
       const skillTreeEl = document.getElementById('skillTree');
       const skillGridEl = document.getElementById('skillGrid');
+      const trophyRoomEl = document.getElementById('trophyRoom');
+      const trophyGridEl = document.getElementById('trophyGrid');
+      const trClearedEl = document.getElementById('tr-cleared');
       const mainMenuEl = document.getElementById('mainMenu');
       const settingsMenuEl = document.getElementById('settingsMenu');
       const btnStart = document.getElementById('btnStart');
       const btnEvolution = document.getElementById('btnEvolution');
+      const btnTrophies = document.getElementById('btnTrophies');
       const btnEvolutionHud = document.getElementById('btnEvolutionHud');
       const btnCloseEvolution = document.getElementById('btnCloseEvolution');
+      const btnCloseTrophies = document.getElementById('btnCloseTrophies');
       const btnSettings = document.getElementById('btnSettings');
       const btnResetProgress = document.getElementById('btnResetProgress');
       const btnCloseSettings = document.getElementById('btnCloseSettings');
@@ -878,6 +993,12 @@
       const destroyedCountEl = document.getElementById('destroyed-count');
       const totalCountEl = document.getElementById('total-count');
       const starTypeEl = document.getElementById('star-type');
+      const modeHudEl = document.getElementById('modeHud');
+
+      const modeHelpEl = document.getElementById('modeHelp');
+      const btnModeNormal = document.getElementById('btnModeNormal');
+      const btnModeTimed = document.getElementById('btnModeTimed');
+      const btnModeLimited = document.getElementById('btnModeLimited');
 
       // ---------- Utilities ----------
       const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -939,6 +1060,33 @@
         ]
       };
 
+      const TROPHIES = {
+        clear10: { name: 'Decimator', desc: 'Clear 10 systems.' },
+        clear50: { name: 'Extinction Protocol', desc: 'Clear 50 systems.' },
+        clear100: { name: 'Dark Silence', desc: 'Clear 100 systems.' },
+
+        clearPulsar: { name: 'Neutron Whisper', desc: 'Clear a pulsar system.' },
+        clearBlackHole: { name: 'Event Horizon', desc: 'Clear a black hole system.' },
+        clearSupernova: { name: 'Afterglow', desc: 'Clear a supernova system.' },
+        clearBinaryBlackHole: { name: 'Twin Abyss', desc: 'Clear a binary black hole system.' },
+        clearBinaryPulsar: { name: 'Double Beacon', desc: 'Clear a binary pulsar system.' },
+        clearBinarySupernova: { name: 'Paired Remnants', desc: 'Clear a binary supernova system.' },
+
+        oneMeteorClear: { name: 'Single Vector', desc: 'Clear a system without fission.' },
+        oneShotClear: { name: 'Perfect Clear', desc: 'Clear a system in a single launch.' },
+
+        resetProgress: { name: 'Tabula Rasa', desc: 'Reset your progress.' },
+      };
+
+      function unlockTrophy(id) {
+        if (!TROPHIES[id]) return;
+        if (world.meta.trophies[id]) return;
+        world.meta.trophies[id] = true;
+        saveProgress();
+        showComms(`TROPHY UNLOCKED: ${TROPHIES[id].name}`, 'success', 5200);
+        if (typeof renderTrophyRoom === 'function') renderTrophyRoom();
+      }
+
       function mulberry32(a) {
         return function () {
           let t = a += 0x6D2B79F5;
@@ -981,6 +1129,133 @@
         ctx.restore();
       }
 
+      function primaryLightVectorForPlanet(p0) {
+        if (!world.stars.length) return { x: 1, y: 0 };
+        let best = world.stars[0];
+        for (const s of world.stars) if (s.mass > best.mass) best = s;
+        const dx = best.x - p0.x;
+        const dy = best.y - p0.y;
+        const d = Math.hypot(dx, dy) || 1;
+        return { x: dx / d, y: dy / d };
+      }
+
+      function drawPlanetSurface(p0) {
+        const r = p0.r;
+        const sun = primaryLightVectorForPlanet(p0);
+
+        ctx.save();
+        ctx.translate(p0.x, p0.y);
+
+        // Surface clip
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.clip();
+
+        // Day/night shading base
+        const g = ctx.createLinearGradient(-sun.x * r, -sun.y * r, sun.x * r, sun.y * r);
+        g.addColorStop(0.0, 'rgba(0,0,0,0.45)');
+        g.addColorStop(0.42, p0.core);
+        g.addColorStop(1.0, 'rgba(255,255,255,0.10)');
+        ctx.fillStyle = g;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        if (p0.isGas && p0.gasBands) {
+          // Soft bands
+          for (const b of p0.gasBands) {
+            const y = b.y * r;
+            const h = b.h * r;
+            ctx.fillStyle = b.c;
+            ctx.fillRect(-r, y - h * 0.5, r * 2, h);
+          }
+
+          // Subtle swirling highlight
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+          ctx.lineWidth = 1;
+          for (let i = 0; i < 6; i++) {
+            const yy = (Math.sin((performance.now() * 0.0003) + i) * 0.25) * r;
+            ctx.beginPath();
+            ctx.ellipse(0, yy, r * (0.6 + i * 0.06), r * 0.16, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.globalCompositeOperation = 'source-over';
+
+          // Storms
+          if (p0.storms && p0.storms.length) {
+            ctx.globalCompositeOperation = 'lighter';
+            for (const st0 of p0.storms) {
+              ctx.save();
+              ctx.translate(st0.x * r, st0.y * r);
+              ctx.rotate(st0.rot + performance.now() * 0.00025);
+              ctx.fillStyle = st0.c;
+              ctx.beginPath();
+              ctx.ellipse(0, 0, st0.rx * r, st0.ry * r, 0, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.restore();
+            }
+            ctx.globalCompositeOperation = 'source-over';
+          }
+        }
+
+        // Earth-like city lights on night side
+        if (p0.earthLike && p0.city && p0.city.points) {
+          let near = false;
+          for (const m of world.meteors) {
+            if (!m || !m.alive) continue;
+            if (Math.hypot(m.x - p0.x, m.y - p0.y) < r * 6.0) { near = true; break; }
+          }
+
+          const flickerBase = 0.65 + 0.35 * Math.sin(performance.now() * 0.003);
+          const hue = near ? 12 : p0.city.hue;
+          ctx.globalCompositeOperation = 'lighter';
+          for (const pt of p0.city.points) {
+            const x = Math.cos(pt.a) * pt.rr;
+            const y = Math.sin(pt.a) * pt.rr;
+            const dot = (x / r) * sun.x + (y / r) * sun.y;
+            if (dot > -0.08) continue; // keep to night side
+
+            const flick = 0.55 + 0.45 * Math.sin(performance.now() * 0.01 + pt.ph);
+            const a = (near ? 0.20 : 0.60) * flickerBase * flick;
+            const c = `hsla(${hue}, 100%, ${near ? 65 : 80}%, ${a})`;
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.arc(x, y, pt.s, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalCompositeOperation = 'source-over';
+        }
+
+        ctx.restore();
+
+        // Atmosphere rim for earth-like planets
+        if (p0.earthLike) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = 'rgba(140,220,255,0.18)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(p0.x, p0.y, r * 1.02, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      function meteorPalette() {
+        const idx = world.skills.kineticImpact || 0;
+        const maxIdx = Math.max(1, SKILLS.kineticImpact.levels.length - 1);
+        const t = clamp(idx / maxIdx, 0, 1);
+        const h = 195 + 85 * t; // cyan -> magenta
+        const glowR = 28 + 10 * t;
+        return {
+          hue: h,
+          glowR,
+          core: `hsla(${h}, 100%, ${92 - 8 * t}%, 0.95)`,
+          glow: `hsla(${h}, 100%, ${65 + 8 * t}%, 0.26)`,
+          trail: (a) => `hsla(${h}, 100%, ${70 + 10 * t}%, ${0.10 * a})`,
+          arrow: `hsla(${h}, 100%, ${88 - 6 * t}%, 0.38)`,
+        };
+      }
+
       // ---------- Constants ----------
       const G = 850;
       const SOFTEN = 55;
@@ -996,7 +1271,6 @@
       const MIN_V = 2;             // allow very slow injections
       const MAX_V = 820;
       const SPEED_SCALE = 1.80;     // mouse distance -> speed
-      const SHIFT_SLOW_FACTOR = 0.1; // hold Shift for micro-speed
 
       // Preview
       const MAX_PREVIEW_LIMIT = 820;
@@ -1047,13 +1321,6 @@
           costs: [20],
           unit: ''
         },
-        timeDilation: {
-          name: 'Time Dilation',
-          desc: 'Unlocks micro-speed precision aiming with <kbd>Shift</kbd>.',
-          levels: [0, 1],
-          costs: [10],
-          unit: ''
-        },
         multikillSystem: {
           name: 'Multikill System',
           desc: 'Stations killed in a single launch double the points awarded.',
@@ -1092,6 +1359,28 @@
         aiming: false,
         aimPointerId: null,
 
+        settings: {
+          mode: 'normal', // normal | timed | limited
+          timedSeconds: 60,
+          launchLimit: 3,
+        },
+        meta: {
+          systemsSeen: 0,
+          systemsCleared: 0,
+          trophies: {},
+          stats: { resets: 0 },
+        },
+
+        systemTypeKey: 'average',
+        isBinarySystem: false,
+        timeLeft: 0,
+        timeExpired: false,
+        launchesThisSystem: 0,
+        launchesLeft: Infinity,
+        usedFissionThisSystem: false,
+        systemClearedRecorded: false,
+        perfectClearBonusGiven: false,
+
         pp: 0,
         skills: {
           predictiveProcessing: 0,
@@ -1100,7 +1389,6 @@
           kineticImpact: 0,
           asteroidPhasing: 0,
           planetaryLaunch: 0,
-          timeDilation: 0,
           multikillSystem: 0
         },
         fissionsUsed: 0,
@@ -1114,8 +1402,11 @@
       // ---------- Persistence ----------
       function saveProgress() {
         const data = {
+          v: 2,
           pp: world.pp,
-          skills: world.skills
+          skills: world.skills,
+          meta: world.meta,
+          settings: world.settings,
         };
         localStorage.setItem('meteor_slingshot_progress', JSON.stringify(data));
       }
@@ -1132,8 +1423,64 @@
               }
             }
           }
+
+          if (data.settings) {
+            world.settings.mode = data.settings.mode || world.settings.mode;
+            world.settings.timedSeconds = Number.isFinite(data.settings.timedSeconds) ? data.settings.timedSeconds : world.settings.timedSeconds;
+            world.settings.launchLimit = Number.isFinite(data.settings.launchLimit) ? data.settings.launchLimit : world.settings.launchLimit;
+          }
+
+          if (data.meta) {
+            world.meta.systemsSeen = Number.isFinite(data.meta.systemsSeen) ? data.meta.systemsSeen : world.meta.systemsSeen;
+            world.meta.systemsCleared = Number.isFinite(data.meta.systemsCleared) ? data.meta.systemsCleared : world.meta.systemsCleared;
+            world.meta.trophies = (data.meta.trophies && typeof data.meta.trophies === 'object') ? data.meta.trophies : world.meta.trophies;
+            if (data.meta.stats && typeof data.meta.stats === 'object') {
+              world.meta.stats.resets = Number.isFinite(data.meta.stats.resets) ? data.meta.stats.resets : world.meta.stats.resets;
+            }
+          }
         }
+        applyModeToCurrentSystem();
+        refreshModeUI();
         updateHUD();
+      }
+
+      function refreshModeUI() {
+        const mode = world.settings.mode;
+        if (btnModeNormal) btnModeNormal.classList.toggle('active', mode === 'normal');
+        if (btnModeTimed) btnModeTimed.classList.toggle('active', mode === 'timed');
+        if (btnModeLimited) btnModeLimited.classList.toggle('active', mode === 'limited');
+
+        if (modeHelpEl) {
+          if (mode === 'normal') {
+            modeHelpEl.textContent = 'Normal: unlimited launches, no timer.';
+          } else if (mode === 'timed') {
+            modeHelpEl.textContent = `Timed: clear the system before the timer hits 0 (${world.settings.timedSeconds}s).`;
+          } else {
+            modeHelpEl.textContent = `Limited: clear the system within a launch cap (${world.settings.launchLimit} launches).`;
+          }
+        }
+      }
+
+      function applyModeToCurrentSystem() {
+        world.timeExpired = false;
+        world.timeLeft = world.settings.mode === 'timed' ? world.settings.timedSeconds : 0;
+        world.launchesLeft = world.settings.mode === 'limited' ? world.settings.launchLimit : Infinity;
+        world.launchesThisSystem = 0;
+        world.usedFissionThisSystem = false;
+        world.systemClearedRecorded = false;
+      }
+
+      function setMode(mode) {
+        const next = (mode === 'timed' || mode === 'limited') ? mode : 'normal';
+        world.settings.mode = next;
+        saveProgress();
+        applyModeToCurrentSystem();
+        refreshModeUI();
+        updateHUD();
+        if (world.phase !== 'menu') {
+          resetToAimEntry();
+          showComms(`MODE SET: ${next.toUpperCase()}`, 'neutral', 2500);
+        }
       }
 
       function updateHUD() {
@@ -1142,6 +1489,7 @@
         totalCountEl.textContent = world.totalStations;
         ppEl.textContent = world.pp;
         stPpEl.textContent = world.pp;
+        updateModeHud();
 
         if (world.totalStations === 0) {
           btnNextSystem.style.display = 'block';
@@ -1153,9 +1501,61 @@
             world.clearedCommsShown = true;
             showComms(pick(NARRATION.success), 'success');
           }
+          recordSystemCleared();
+        } else if (world.settings.mode === 'timed' && world.timeExpired) {
+          btnNextSystem.style.display = 'block';
+          btnNextSystem.textContent = "Next System >";
+        } else if (world.settings.mode === 'limited' && world.launchesLeft <= 0) {
+          btnNextSystem.style.display = 'block';
+          btnNextSystem.textContent = "Next System >";
         } else {
           btnNextSystem.style.display = 'none';
         }
+      }
+
+      function updateModeHud() {
+        if (!modeHudEl) return;
+        const mode = world.settings.mode;
+        if (mode === 'timed') {
+          const s = Math.max(0, Math.ceil(world.timeLeft || 0));
+          modeHudEl.textContent = `Timed: ${s}s`;
+        } else if (mode === 'limited') {
+          const left = (world.launchesLeft === Infinity) ? '∞' : String(Math.max(0, world.launchesLeft));
+          modeHudEl.textContent = `Launches: ${left}`;
+        } else {
+          modeHudEl.textContent = '';
+        }
+      }
+
+      function recordSystemCleared() {
+        if (world.systemClearedRecorded) return;
+        if (world.totalStations <= 0) return;
+        world.systemClearedRecorded = true;
+        world.meta.systemsCleared = (world.meta.systemsCleared || 0) + 1;
+
+        if (world.launchesThisSystem === 1 && !world.perfectClearBonusGiven) {
+          world.perfectClearBonusGiven = true;
+          world.pp += 2;
+          ppEl.textContent = world.pp;
+          stPpEl.textContent = world.pp;
+          showComms('PERFECT CLEAR: +2 PP', 'success', 3200);
+        }
+
+        if (world.meta.systemsCleared >= 10) unlockTrophy('clear10');
+        if (world.meta.systemsCleared >= 50) unlockTrophy('clear50');
+        if (world.meta.systemsCleared >= 100) unlockTrophy('clear100');
+
+        if (world.systemTypeKey === 'pulsar') unlockTrophy('clearPulsar');
+        if (world.systemTypeKey === 'black_hole') unlockTrophy('clearBlackHole');
+        if (world.systemTypeKey === 'supernova') unlockTrophy('clearSupernova');
+        if (world.systemTypeKey === 'binary_black_hole') unlockTrophy('clearBinaryBlackHole');
+        if (world.systemTypeKey === 'binary_pulsar') unlockTrophy('clearBinaryPulsar');
+        if (world.systemTypeKey === 'binary_supernova') unlockTrophy('clearBinarySupernova');
+
+        if (!world.usedFissionThisSystem) unlockTrophy('oneMeteorClear');
+        if (world.launchesThisSystem === 1) unlockTrophy('oneShotClear');
+
+        saveProgress();
       }
 
       // Single view now (2D-only). Keep the nice look for both planning + watching.
@@ -1299,6 +1699,11 @@
         world.asteroids = [];
         world.totalStations = 0;
         world.clearedCommsShown = false;
+        world.systemTypeKey = 'average';
+        world.isBinarySystem = false;
+        applyModeToCurrentSystem();
+        hideShootAgain();
+        world.perfectClearBonusGiven = false;
 
         updateHUD();
 
@@ -1345,6 +1750,14 @@
           world.stars.push(s1, s2);
         }
 
+        world.isBinarySystem = isBinary;
+        if (!isBinary) {
+          world.systemTypeKey = world.stars[0]?.type || 'average';
+        } else {
+          const t = world.stars.map(s => s.type).sort();
+          world.systemTypeKey = (t.length === 2 && t[0] === t[1]) ? `binary_${t[0]}` : 'binary_mixed';
+        }
+
         world.planets = [];
         world.stations = [];
 
@@ -1377,6 +1790,51 @@
           ];
           const [core, glow] = (isGas ? gas : rocky)[Math.floor(rng() * 4)];
           const hasRings = isGas && rng() < 0.45;
+          const earthLike = (!isGas && rng() < 0.04);
+
+          let finalCore = core;
+          let finalGlow = glow;
+          let city = null;
+          let gasBands = null;
+          let storms = null;
+
+          if (earthLike) {
+            finalCore = 'rgba(120,170,190,0.95)';
+            finalGlow = 'rgba(120,220,255,0.16)';
+            const count = 45 + Math.floor(rng() * 60);
+            city = {
+              hue: rng() < 0.7 ? 48 : 200,
+              points: Array.from({ length: count }, () => ({
+                a: rng() * Math.PI * 2,
+                rr: r * (0.55 + rng() * 0.4),
+                s: 0.8 + rng() * 1.6,
+                ph: rng() * Math.PI * 2
+              }))
+            };
+          }
+
+          if (isGas) {
+            const bandCount = 6 + Math.floor(rng() * 5);
+            gasBands = Array.from({ length: bandCount }, (_, bi) => {
+              const y = -1 + (2 * bi) / Math.max(1, bandCount - 1);
+              const t = bi / Math.max(1, bandCount - 1);
+              const warm = rng() < 0.5;
+              const c = warm
+                ? `rgba(${200 + Math.floor(40 * rng())},${155 + Math.floor(55 * rng())},${110 + Math.floor(50 * rng())},0.75)`
+                : `rgba(${120 + Math.floor(70 * rng())},${170 + Math.floor(60 * rng())},${200 + Math.floor(45 * rng())},0.65)`;
+              const h = 0.18 + rng() * 0.22;
+              return { y, h, c, t };
+            });
+            const stormCount = rng() < 0.35 ? 1 : 0;
+            storms = Array.from({ length: stormCount }, () => ({
+              x: (rng() - 0.5) * 0.5,
+              y: (rng() - 0.5) * 0.6,
+              rx: 0.18 + rng() * 0.22,
+              ry: 0.10 + rng() * 0.16,
+              rot: rng() * Math.PI,
+              c: rng() < 0.5 ? 'rgba(255,220,180,0.28)' : 'rgba(200,245,255,0.22)'
+            }));
+          }
 
           // orbital speed: farther = slower
           const omega = 0.32 * Math.pow((baseOrbit / orbit), 1.25);
@@ -1385,7 +1843,8 @@
             orbit, ang, omega,
             x: cx + Math.cos(ang) * orbit,
             y: cy + Math.sin(ang) * orbit,
-            r, mass, isGas, core, glow, hasRings,
+            r, mass, isGas, core: finalCore, glow: finalGlow, hasRings,
+            earthLike, city, gasBands, storms,
           };
           world.planets.push(p);
 
@@ -1542,8 +2001,25 @@
             mainMenuEl.classList.remove('hidden');
           }
         } else {
+          if (settingsMenuEl.classList.contains('active')) settingsMenuEl.classList.remove('active');
+          if (trophyRoomEl.classList.contains('active')) trophyRoomEl.classList.remove('active');
           renderSkillTree();
           skillTreeEl.classList.add('active');
+          mainMenuEl.classList.add('hidden');
+        }
+      }
+
+      function toggleTrophyRoom() {
+        if (trophyRoomEl.classList.contains('active')) {
+          trophyRoomEl.classList.remove('active');
+          if (world.phase === 'menu') {
+            mainMenuEl.classList.remove('hidden');
+          }
+        } else {
+          if (settingsMenuEl.classList.contains('active')) settingsMenuEl.classList.remove('active');
+          if (skillTreeEl.classList.contains('active')) skillTreeEl.classList.remove('active');
+          renderTrophyRoom();
+          trophyRoomEl.classList.add('active');
           mainMenuEl.classList.add('hidden');
         }
       }
@@ -1558,13 +2034,18 @@
 
       btnStart.addEventListener('click', startGame);
       btnEvolution.addEventListener('click', toggleSkillTree);
+      btnTrophies.addEventListener('click', toggleTrophyRoom);
       btnEvolutionHud.addEventListener('click', toggleSkillTree);
       btnCloseEvolution.addEventListener('click', toggleSkillTree);
+      btnCloseTrophies.addEventListener('click', toggleTrophyRoom);
       btnSettings.addEventListener('click', toggleSettings);
       btnCloseSettings.addEventListener('click', toggleSettings);
       btnResetProgress.addEventListener('click', resetProgress);
       btnNextSystem.addEventListener('click', transitionToNewSystem);
       if (btnShootAgain) btnShootAgain.addEventListener('click', resetToAimEntry);
+      if (btnModeNormal) btnModeNormal.addEventListener('click', () => setMode('normal'));
+      if (btnModeTimed) btnModeTimed.addEventListener('click', () => setMode('timed'));
+      if (btnModeLimited) btnModeLimited.addEventListener('click', () => setMode('limited'));
 
       function toggleSettings() {
         if (settingsMenuEl.classList.contains('active')) {
@@ -1573,8 +2054,11 @@
             mainMenuEl.classList.remove('hidden');
           }
         } else {
+          if (skillTreeEl.classList.contains('active')) skillTreeEl.classList.remove('active');
+          if (trophyRoomEl.classList.contains('active')) trophyRoomEl.classList.remove('active');
           settingsMenuEl.classList.add('active');
           mainMenuEl.classList.add('hidden');
+          refreshModeUI();
         }
       }
 
@@ -1584,6 +2068,8 @@
           for (const key in world.skills) {
             world.skills[key] = 0;
           }
+          world.meta.stats.resets = (world.meta.stats.resets || 0) + 1;
+          unlockTrophy('resetProgress');
           saveProgress();
           updateHUD();
           renderSkillTree();
@@ -1615,6 +2101,25 @@
         }
       }
 
+      function renderTrophyRoom() {
+        if (!trophyGridEl) return;
+        trophyGridEl.innerHTML = '';
+        if (trClearedEl) trClearedEl.textContent = String(world.meta.systemsCleared || 0);
+
+        for (const [id, trophy] of Object.entries(TROPHIES)) {
+          const unlocked = !!world.meta.trophies[id];
+          const card = document.createElement('div');
+          card.className = `skill-card ${unlocked ? '' : 'trophy-locked'}`;
+          card.innerHTML = `
+            <div class="skill-name">${trophy.name}${unlocked ? '<span class="earned">EARNED</span>' : ''}</div>
+            <div class="skill-desc">${trophy.desc}</div>
+            <div class="skill-stats">Status: ${unlocked ? 'Unlocked' : 'Locked'}</div>
+            <button class="btn-upgrade" disabled>${unlocked ? 'Unlocked' : 'Locked'}</button>
+          `;
+          trophyGridEl.appendChild(card);
+        }
+      }
+
       window.upgradeSkill = (id) => {
         const skill = SKILLS[id];
         const currentLevel = world.skills[id];
@@ -1628,10 +2133,7 @@
         }
       };
 
-      let shiftDown = false;
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Shift') shiftDown = true;
-
         if (e.key === '.') world.dotDown = true;
         if (e.key === ',') world.commaDown = true;
         world.warp = (world.dotDown ? 4 : 1) * (world.commaDown ? 0.25 : 1);
@@ -1646,6 +2148,10 @@
         if (e.key === 'Escape') {
           if (skillTreeEl.classList.contains('active')) {
             toggleSkillTree();
+          } else if (trophyRoomEl.classList.contains('active')) {
+            toggleTrophyRoom();
+          } else if (settingsMenuEl.classList.contains('active')) {
+            toggleSettings();
           } else if (world.phase !== 'menu') {
             world.phase = 'menu';
             mainMenuEl.classList.remove('hidden');
@@ -1659,8 +2165,6 @@
         }
       });
       window.addEventListener('keyup', (e) => {
-        if (e.key === 'Shift') shiftDown = false;
-
         if (e.key === '.') world.dotDown = false;
         if (e.key === ',') world.commaDown = false;
         world.warp = (world.dotDown ? 4 : 1) * (world.commaDown ? 0.25 : 1);
@@ -1682,15 +2186,19 @@
 
       function launchFromAim() {
         if (world.phase !== 'aimSpeed' || !world.entryPoint || !world.aimPoint) return;
+        world.launchesThisSystem++;
+        if (world.settings.mode === 'limited') {
+          world.launchesLeft = Math.max(0, (world.launchesLeft === Infinity ? world.settings.launchLimit : world.launchesLeft) - 1);
+        }
+        updateHUD();
+
         const ep = world.entryPoint;
         const p = world.aimPoint;
         const dirx = (p.x - ep.x);
         const diry = (p.y - ep.y);
         const d = Math.max(1, len(dirx, diry));
 
-        const hasTimeDilation = world.skills.timeDilation > 0;
-        const slow = (shiftDown && hasTimeDilation) ? SHIFT_SLOW_FACTOR : 1;
-        const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+        const v = clamp(d * SPEED_SCALE, MIN_V, MAX_V);
         const vx = (dirx / d) * v;
         const vy = (diry / d) * v;
 
@@ -1721,12 +2229,15 @@
         if (world.phase === 'menu') return;
         if (settingsMenuEl.classList.contains('active')) return;
         if (skillTreeEl.classList.contains('active')) return;
+        if (trophyRoomEl.classList.contains('active')) return;
         if (e.isPrimary === false) return;
 
         e.preventDefault();
         const p = screenToWorld(e);
 
         if (world.phase === 'aimEntry') {
+          if (world.settings.mode === 'timed' && world.timeExpired) return;
+          if (world.settings.mode === 'limited' && world.launchesLeft <= 0) return;
           const pl = pickPlanetAtPoint(p);
           if (pl && world.skills.planetaryLaunch > 0) {
             world.launcherPlanet = pl;
@@ -1747,6 +2258,8 @@
         }
 
         if (world.phase === 'aimSpeed') {
+          if (world.settings.mode === 'timed' && world.timeExpired) return;
+          if (world.settings.mode === 'limited' && world.launchesLeft <= 0) return;
           if (world.aiming && world.aimPointerId !== e.pointerId) return;
           world.aiming = true;
           world.aimPointerId = e.pointerId;
@@ -1802,6 +2315,7 @@
 
         const newMeteors = [];
         world.fissionsUsed++;
+        world.usedFissionThisSystem = true;
         for (const m of world.meteors) {
           if (!m.alive) continue;
 
@@ -1943,8 +2457,7 @@
         const diry = (p.y - ep.y);
         const d = Math.max(1, len(dirx, diry));
 
-        const slow = (shiftDown && world.skills.timeDilation > 0) ? SHIFT_SLOW_FACTOR : 1;
-        const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+        const v = clamp(d * SPEED_SCALE, MIN_V, MAX_V);
         let vx = (dirx / d) * v;
         let vy = (diry / d) * v;
 
@@ -2177,21 +2690,31 @@
           if (p0.hasRings) {
             ctx.save();
             ctx.translate(p0.x, p0.y);
-            ctx.rotate(0.45 + (p0.orbit / 220));
-            ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+            ctx.rotate(0.45 + (p0.orbit / 260));
+
+            const rg = ctx.createLinearGradient(-p0.r * 2.2, 0, p0.r * 2.2, 0);
+            rg.addColorStop(0, 'rgba(180,220,255,0.00)');
+            rg.addColorStop(0.2, 'rgba(255,255,255,0.10)');
+            rg.addColorStop(0.5, 'rgba(200,240,255,0.08)');
+            rg.addColorStop(0.8, 'rgba(255,255,255,0.10)');
+            rg.addColorStop(1, 'rgba(180,220,255,0.00)');
+
+            ctx.strokeStyle = rg;
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.ellipse(0, 0, p0.r * 1.8, p0.r * 0.75, 0, 0, Math.PI * 2);
+            ctx.ellipse(0, 0, p0.r * 1.85, p0.r * 0.78, 0, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.strokeStyle = 'rgba(180,220,255,0.07)';
+
+            ctx.strokeStyle = 'rgba(180,220,255,0.06)';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.ellipse(0, 0, p0.r * 2.1, p0.r * 0.9, 0, 0, Math.PI * 2);
+            ctx.ellipse(0, 0, p0.r * 2.1, p0.r * 0.92, 0, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
           }
 
-          glowCircle(p0.x, p0.y, p0.r, p0.core, p0.glow, p0.r * 2.2);
+          glowCircle(p0.x, p0.y, p0.r, 'rgba(0,0,0,0)', p0.glow, p0.r * 2.2);
+          drawPlanetSurface(p0);
           ctx.save();
           ctx.strokeStyle = 'rgba(10,15,35,0.55)';
           ctx.lineWidth = 2;
@@ -2307,6 +2830,7 @@
       }
 
       function drawMeteor() {
+        const pal = meteorPalette();
         for (const m of world.meteors) {
           if (!m || (!m.alive && m.trail.length === 0)) continue;
 
@@ -2317,7 +2841,7 @@
               const a = i / m.trail.length;
               const p0 = m.trail[i - 1];
               const p1 = m.trail[i];
-              ctx.strokeStyle = `rgba(140,220,255,${0.10 * a})`;
+              ctx.strokeStyle = pal.trail(a);
               ctx.lineWidth = (1 + 2.5 * a);
               ctx.beginPath();
               ctx.moveTo(p0.x, p0.y);
@@ -2330,7 +2854,7 @@
           if (m.alive) {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
-            glowCircle(m.x, m.y, m.r, 'rgba(230,250,255,0.95)', 'rgba(120,210,255,0.25)', 28);
+            glowCircle(m.x, m.y, m.r, pal.core, pal.glow, pal.glowR);
             ctx.restore();
 
             const v = Math.hypot(m.vx, m.vy) || 1;
@@ -2338,7 +2862,7 @@
             const dy = (m.vy / v) * 12;
 
             ctx.save();
-            ctx.strokeStyle = 'rgba(230,250,255,0.38)';
+            ctx.strokeStyle = pal.arrow;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(m.x, m.y);
@@ -2396,8 +2920,7 @@
             const dy = p.y - ep.y;
             const d = Math.max(1, Math.hypot(dx, dy));
 
-            const slow = shiftDown ? SHIFT_SLOW_FACTOR : 1;
-            const v = clamp(d * SPEED_SCALE * slow, MIN_V, MAX_V);
+            const v = clamp(d * SPEED_SCALE, MIN_V, MAX_V);
             const ux = dx / d, uy = dy / d;
 
             ctx.save();
@@ -2443,6 +2966,23 @@
         const t = performance.now();
         const dt = Math.min(0.05, (t - lastT) / 1000);
         lastT = t;
+
+        const uiPaused =
+          skillTreeEl.classList.contains('active') ||
+          trophyRoomEl.classList.contains('active') ||
+          settingsMenuEl.classList.contains('active');
+
+        if (world.phase !== 'menu' && world.settings.mode === 'timed' && !world.timeExpired && !uiPaused) {
+          world.timeLeft -= dt;
+          if (world.timeLeft <= 0) {
+            world.timeLeft = 0;
+            world.timeExpired = true;
+            showComms('TIME EXPIRED. SYSTEM UNSHIELDED.', 'fail', 5200);
+            updateHUD();
+          } else {
+            updateModeHud();
+          }
+        }
 
         // Orbits / sim (time warp)
         if (world.phase === 'aimSpeed' && world.previewDirty) computePreview();
