@@ -141,6 +141,50 @@
       color: #ffffff;
     }
 
+    .perf-panel {
+      position: absolute;
+      top: 16px;
+      right: 14px;
+      background: rgba(10, 16, 35, 0.72);
+      border: 1px solid rgba(138, 180, 255, 0.25);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-family: 'Exo 2', sans-serif;
+      font-size: 12px;
+      line-height: 1.45;
+      color: rgba(226, 232, 240, 0.9);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(10px);
+      pointer-events: none;
+      z-index: 65;
+      min-width: 200px;
+      text-shadow: 0 0 18px rgba(120, 180, 255, 0.18);
+    }
+
+    .perf-title {
+      font-family: 'Orbitron', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      font-size: 11px;
+      color: #8ab4ff;
+      margin-bottom: 4px;
+    }
+
+    .perf-panel.hidden {
+      display: none;
+    }
+
+    .perf-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+
+    .perf-subtle {
+      color: rgba(226, 232, 240, 0.6);
+      font-size: 11px;
+    }
+
     /* Skill Tree Overlay */
     #skillTree {
       position: fixed;
@@ -877,10 +921,15 @@
       <div class="seed">Seed: <span id="seed"></span> | <span id="star-type"></span></div>
     </div>
     <div id="comms" class="comms" aria-live="polite"></div>
+    <div id="perfPanel" class="perf-panel">
+      <div class="perf-title">Performance</div>
+      <div id="perfMetrics" class="perf-grid"></div>
+    </div>
     <div class="hint" id="hint"></div>
     <button id="btnNextSystem" class="btn-next-system">Next System ></button>
     <button id="btnShootAgain" class="btn-shoot-again" aria-label="Shoot again">Shoot Again</button>
     <div class="hud-actions">
+      <button id="btnPerfHud" class="btn-hud" aria-label="Toggle performance HUD">Perf</button>
       <button id="btnEvolutionHud" class="btn-hud" aria-label="Open Evolution">Evolution</button>
     </div>
   </div>
@@ -994,6 +1043,9 @@
       const totalCountEl = document.getElementById('total-count');
       const starTypeEl = document.getElementById('star-type');
       const modeHudEl = document.getElementById('modeHud');
+      const perfPanelEl = document.getElementById('perfPanel');
+      const perfMetricsEl = document.getElementById('perfMetrics');
+      const btnPerfHud = document.getElementById('btnPerfHud');
 
       const modeHelpEl = document.getElementById('modeHelp');
       const btnModeNormal = document.getElementById('btnModeNormal');
@@ -1277,6 +1329,25 @@
       const PREVIEW_DT = DT;
       const PREVIEW_THROTTLE_MS = 40;
 
+      function updateGravityBodies() {
+        world.gravityBodies = [...world.stars, ...world.planets];
+      }
+
+      function buildStarfield() {
+        const starCount = Math.floor((W * H) / 35000);
+        const r0 = mulberry32(hashSeed(`${seed}:stars:${W}x${H}`));
+        const stars = [];
+        for (let i = 0; i < starCount; i++) {
+          stars.push({
+            x: r0() * W,
+            y: r0() * H,
+            size: r0() < 0.75 ? 1 : 2,
+            color: `rgba(220,240,255,${0.25 + r0() * 0.55})`
+          });
+        }
+        world.backgroundStars = stars;
+      }
+
       // ---------- Skills Definition ----------
       const SKILLS = {
         predictiveProcessing: {
@@ -1397,7 +1468,88 @@
         asteroids: [],
         totalStations: 0,
         clearedCommsShown: false,
+        backgroundStars: [],
+        gravityBodies: [],
       };
+
+      // ---------- Performance tools ----------
+      const PERF_WINDOW = 120;
+      const perfStats = {
+        enabled: true,
+        frameSamples: new Float32Array(PERF_WINDOW),
+        simSamples: new Float32Array(PERF_WINDOW),
+        drawSamples: new Float32Array(PERF_WINDOW),
+        frameTotal: 0,
+        simTotal: 0,
+        drawTotal: 0,
+        idx: 0,
+        count: 0,
+        lastUpdate: 0,
+      };
+
+      function resetPerf() {
+        perfStats.frameSamples.fill(0);
+        perfStats.simSamples.fill(0);
+        perfStats.drawSamples.fill(0);
+        perfStats.frameTotal = 0;
+        perfStats.simTotal = 0;
+        perfStats.drawTotal = 0;
+        perfStats.idx = 0;
+        perfStats.count = 0;
+        perfStats.lastUpdate = 0;
+        updatePerfPanel();
+        if (btnPerfHud) btnPerfHud.textContent = perfStats.enabled ? 'Perf ON' : 'Perf OFF';
+      }
+
+      function togglePerfPanel() {
+        perfStats.enabled = !perfStats.enabled;
+        if (perfPanelEl) perfPanelEl.classList.toggle('hidden', !perfStats.enabled);
+        if (btnPerfHud) btnPerfHud.textContent = perfStats.enabled ? 'Perf ON' : 'Perf OFF';
+        updatePerfPanel();
+      }
+
+      function recordPerf(frameMs, simMs, drawMs) {
+        if (!perfStats.enabled) return;
+        const i = perfStats.idx;
+        perfStats.frameTotal += frameMs - perfStats.frameSamples[i];
+        perfStats.simTotal += simMs - perfStats.simSamples[i];
+        perfStats.drawTotal += drawMs - perfStats.drawSamples[i];
+
+        perfStats.frameSamples[i] = frameMs;
+        perfStats.simSamples[i] = simMs;
+        perfStats.drawSamples[i] = drawMs;
+
+        perfStats.idx = (i + 1) % PERF_WINDOW;
+        perfStats.count = Math.min(perfStats.count + 1, PERF_WINDOW);
+
+        const now = performance.now();
+        if (now - perfStats.lastUpdate > 250) {
+          updatePerfPanel();
+          perfStats.lastUpdate = now;
+        }
+      }
+
+      function updatePerfPanel() {
+        if (!perfPanelEl || !perfMetricsEl) return;
+        perfPanelEl.classList.toggle('hidden', !perfStats.enabled);
+        if (!perfStats.enabled) return;
+
+        const count = Math.max(1, perfStats.count);
+        const avgFrame = perfStats.frameTotal / count;
+        const avgSim = perfStats.simTotal / count;
+        const avgDraw = perfStats.drawTotal / count;
+        const fps = Math.max(1, 1000 / Math.max(1, avgFrame));
+        let aliveStations = 0;
+        for (const st of world.stations) if (st.alive) aliveStations++;
+
+        perfMetricsEl.innerHTML = `
+          <div>FPS: ${fps.toFixed(1)} (${avgFrame.toFixed(2)}ms)</div>
+          <div>Sim: ${avgSim.toFixed(2)}ms | Draw: ${avgDraw.toFixed(2)}ms</div>
+          <div class="perf-subtle">Warp ${world.warp}x | Preview ${world.preview.length} pts</div>
+          <div class="perf-subtle">Bodies: ${world.gravityBodies.length} | Stations: ${aliveStations}/${world.totalStations}</div>
+          <div class="perf-subtle">Meteors: ${world.meteors.length} | Asteroids: ${world.asteroids.length} | Sparks: ${sparks.length}</div>
+        `;
+      }
 
       // ---------- Persistence ----------
       function saveProgress() {
@@ -1577,6 +1729,7 @@
         vg.addColorStop(0, 'rgba(0,0,0,0)');
         vg.addColorStop(1, 'rgba(0,0,0,0.55)');
         world.vignette = vg;
+        buildStarfield();
       }
 
       // ---------- Generation ----------
@@ -1685,6 +1838,8 @@
         if (newSeed) seed = newSeed;
         rng = mulberry32(hashSeed(seed));
         seedEl.textContent = seed;
+        buildStarfield();
+        resetPerf();
 
         world.step = 0;
         world.score = 0;
@@ -1887,7 +2042,9 @@
           }
         }
         world.totalStations = world.stations.length;
+        updateGravityBodies();
         updateHUD();
+        updatePerfPanel();
       }
 
       function updateOrbits(dt) {
@@ -2043,6 +2200,7 @@
       btnResetProgress.addEventListener('click', resetProgress);
       btnNextSystem.addEventListener('click', transitionToNewSystem);
       if (btnShootAgain) btnShootAgain.addEventListener('click', resetToAimEntry);
+      if (btnPerfHud) btnPerfHud.addEventListener('click', togglePerfPanel);
       if (btnModeNormal) btnModeNormal.addEventListener('click', () => setMode('normal'));
       if (btnModeTimed) btnModeTimed.addEventListener('click', () => setMode('timed'));
       if (btnModeLimited) btnModeLimited.addEventListener('click', () => setMode('limited'));
@@ -2349,7 +2507,8 @@
       function gravAccelAt(x, y, snapshotBodies = null) {
         let ax = 0, ay = 0;
 
-        const bodies = snapshotBodies || [...world.stars, ...world.planets];
+        const bodies = snapshotBodies || world.gravityBodies;
+        if (!bodies || bodies.length === 0) return { ax, ay };
         for (const b of bodies) {
           const dx = b.x - x;
           const dy = b.y - y;
@@ -2367,25 +2526,27 @@
       function integrate() {
         if (world.phase !== 'sim') return;
 
-        const aliveMeteors = world.meteors.filter(m => m.alive);
-        if (!aliveMeteors.length) {
-          world.phase = 'aimEntry'; // Or wait for user? Current logic auto-resets if all dead?
-          // Actually, let's just let the user press Space.
-          return;
-        }
+        const radiusMult = SKILLS.kineticImpact.levels[world.skills.kineticImpact];
+        const bodies = world.gravityBodies;
+        let aliveCount = 0;
+        const margin = Math.min(W, H) * 0.72;
+        const margin2 = margin * margin;
+        const cx = W / 2, cy = H / 2;
 
-        for (const m of aliveMeteors) {
-          const a = gravAccelAt(m.x, m.y);
+        for (const m of world.meteors) {
+          if (!m || !m.alive) continue;
+          aliveCount++;
+
+          const a = gravAccelAt(m.x, m.y, bodies);
           m.vx += a.ax * DT;
           m.vy += a.ay * DT;
           m.x += m.vx * DT;
           m.y += m.vy * DT;
 
           m.trail.push({ x: m.x, y: m.y });
-          if (m.trail.length > 160) m.trail.shift();
+          if (m.trail.length > 140) m.trail.shift();
 
           // Collisions: stations
-          const radiusMult = SKILLS.kineticImpact.levels[world.skills.kineticImpact];
           for (const st of world.stations) {
             if (!st.alive) continue;
             const d2 = len2(m.x - st.x, m.y - st.y);
@@ -2407,11 +2568,11 @@
           }
 
           // Collisions: planets / star
-          const bodies = [...world.stars, ...world.planets];
           for (const b of bodies) {
             if (m.launcherPlanet && b === m.launcherPlanet) continue;
-            const d = len(m.x - b.x, m.y - b.y);
-            if (d < b.r * 0.92) {
+            const hitR = b.r * 0.92;
+            const d2 = len2(m.x - b.x, m.y - b.y);
+            if (d2 < hitR * hitR) {
               m.alive = false;
               spawnBurst(m.x, m.y, 22);
               break;
@@ -2431,9 +2592,15 @@
             }
           }
 
-          const margin = Math.min(W, H) * 0.72;
-          const cx = W / 2, cy = H / 2;
-          if (len(m.x - cx, m.y - cy) > margin) m.alive = false;
+          const dx = m.x - cx;
+          const dy = m.y - cy;
+          if ((dx * dx + dy * dy) > margin2) m.alive = false;
+        }
+
+        if (!aliveCount) {
+          world.phase = 'aimEntry'; // Or wait for user? Current logic auto-resets if all dead?
+          // Actually, let's just let the user press Space.
+          return;
         }
 
         world.step++;
@@ -2465,11 +2632,12 @@
         let y = ep.y;
 
         // snapshot bodies for preview stability/readability
-        const bodies = [...world.stars.map(s => ({ ...s })), ...world.planets.map(pp => ({ x: pp.x, y: pp.y, mass: pp.mass, r: pp.r }))];
+        const bodies = world.gravityBodies.map(b => ({ x: b.x, y: b.y, mass: b.mass, r: b.r }));
 
         const pts = [];
         const cx = W / 2, cy = H / 2;
         const margin = Math.min(W, H) * 0.72;
+        const margin2 = margin * margin;
 
         const skillLevel = world.skills.predictiveProcessing;
         const steps = SKILLS.predictiveProcessing.levels[skillLevel];
@@ -2483,22 +2651,21 @@
 
           pts.push({ x, y });
 
-          if (len(x - cx, y - cy) > margin) break;
+          const dx = x - cx;
+          const dy = y - cy;
+          if ((dx * dx + dy * dy) > margin2) break;
 
           let hit = false;
-          for (const s of world.stars) {
-            if (len(x - s.x, y - s.y) < s.r * 0.92) { hit = true; break; }
-          }
-          if (!hit) {
-            for (const pl of world.planets) {
-              if (world.launcherPlanet && pl === world.launcherPlanet) continue;
-              if (len(x - pl.x, y - pl.y) < pl.r * 0.92) { hit = true; break; }
-            }
+          for (const b of world.gravityBodies) {
+            if (world.launcherPlanet && b === world.launcherPlanet) continue;
+            const rHit = b.r * 0.92;
+            const dd = len2(x - b.x, y - b.y);
+            if (dd < rHit * rHit) { hit = true; break; }
           }
           if (!hit) {
             if (world.skills.asteroidPhasing === 0) {
               for (const ast of world.asteroids) {
-                if (len(x - ast.x, y - ast.y) < (ast.r + 3)) { hit = true; break; }
+                if (len2(x - ast.x, y - ast.y) < (ast.r + 3) * (ast.r + 3)) { hit = true; break; }
               }
             }
           }
@@ -2547,17 +2714,11 @@
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, W, H);
 
-        const starCount = Math.floor((W * H) / 35000);
-        const r0 = mulberry32(hashSeed(seed + ':stars'));
         ctx.save();
         ctx.globalAlpha = 0.9;
-        for (let i = 0; i < starCount; i++) {
-          const x = r0() * W;
-          const y = r0() * H;
-          const s = r0();
-          const a = 0.25 + r0() * 0.55;
-          ctx.fillStyle = `rgba(220,240,255,${a})`;
-          ctx.fillRect(x, y, s < 0.75 ? 1 : 2, 1);
+        for (const s of world.backgroundStars) {
+          ctx.fillStyle = s.color;
+          ctx.fillRect(s.x, s.y, s.size, 1);
         }
         ctx.restore();
 
@@ -2963,9 +3124,9 @@
       // ---------- Main loop ----------
       let lastT = performance.now();
       function tick() {
-        const t = performance.now();
-        const dt = Math.min(0.05, (t - lastT) / 1000);
-        lastT = t;
+        const frameStart = performance.now();
+        const dt = Math.min(0.05, (frameStart - lastT) / 1000);
+        lastT = frameStart;
 
         const uiPaused =
           skillTreeEl.classList.contains('active') ||
@@ -2987,6 +3148,7 @@
         // Orbits / sim (time warp)
         if (world.phase === 'aimSpeed' && world.previewDirty) computePreview();
 
+        const simStart = performance.now();
         if (world.phase === 'sim') {
           const simDt = dt * world.warp;
           const sub = Math.max(1, Math.ceil(simDt / (DT * 1.25)));
@@ -2999,7 +3161,11 @@
         }
 
         stepSparks();
+        const simMs = performance.now() - simStart;
+        const drawStart = performance.now();
         draw();
+        const drawMs = performance.now() - drawStart;
+        recordPerf(performance.now() - frameStart, simMs, drawMs);
         requestAnimationFrame(tick);
       }
 
