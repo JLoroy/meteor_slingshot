@@ -231,6 +231,38 @@
       display: flex;
     }
 
+    /* Navigation Overlay */
+    #navMenu {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(15, 25, 60, 0.96) 0%, rgba(5, 8, 24, 0.98) 100%);
+      padding: 40px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      pointer-events: auto;
+      z-index: 120;
+      backdrop-filter: blur(12px);
+      color: #e2e8f0;
+      font-family: 'Exo 2', sans-serif;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #navMenu.active {
+      display: flex;
+    }
+
+    .nav-help {
+      width: 100%;
+      max-width: 1000px;
+      margin-top: 12px;
+      color: rgba(226, 232, 240, 0.72);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     .trophy-locked {
       opacity: 0.55;
       filter: grayscale(0.25);
@@ -850,7 +882,8 @@
 
       #skillTree,
       #trophyRoom,
-      #settingsMenu {
+      #settingsMenu,
+      #navMenu {
         padding: 18px;
       }
 
@@ -1011,6 +1044,22 @@
     </div>
   </div>
 
+  <div id="navMenu" aria-label="Navigation power">
+    <div class="skill-tree-header">
+      <div class="skill-tree-title">Navigation Power</div>
+      <div class="skill-tree-right">
+        <div class="current-pp">Progress Points: <span id="nav-pp">0</span></div>
+      </div>
+    </div>
+    <div class="nav-help" id="navHelp"></div>
+    <div class="skill-grid" id="navGrid">
+      <!-- Navigation options injected here -->
+    </div>
+    <div class="overlay-footer">
+      <button id="btnCloseNav" class="btn-overlay-close" aria-label="Close navigation">Cancel</button>
+    </div>
+  </div>
+
   <script>
     (() => {
       const canvas = document.getElementById('c');
@@ -1053,12 +1102,19 @@
       const btnModeTimed = document.getElementById('btnModeTimed');
       const btnModeLimited = document.getElementById('btnModeLimited');
 
+      const navMenuEl = document.getElementById('navMenu');
+      const navGridEl = document.getElementById('navGrid');
+      const navPpEl = document.getElementById('nav-pp');
+      const navHelpEl = document.getElementById('navHelp');
+      const btnCloseNav = document.getElementById('btnCloseNav');
+
       // ---------- Utilities ----------
       const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
       const len2 = (x, y) => x * x + y * y;
       const len = (x, y) => Math.hypot(x, y);
       const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
       const isMobileUI = () => window.matchMedia && window.matchMedia('(max-width: 520px)').matches;
+      const formatStarType = (t) => t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
       let shootAgainTimer = null;
       function hideShootAgain() {
@@ -1345,6 +1401,8 @@
           hp: 'rgba(215, 175, 255, 0.80)',
         },
       };
+      const DYSON_SPHERE_CHANCE = 1 / 20;
+      const DYSON_SPHERE_STATION_COUNT = 100;
       const STATION_SPRITE_BASE_SIZE = 3.0;
       const STATION_SPRITE_CSS_DIM = 40;
       const stationSpriteCache = new Map();
@@ -1529,6 +1587,13 @@
           levels: [0, 1],
           costs: [20],
           unit: ''
+        },
+        navigationPower: {
+          name: 'Navigation Power',
+          desc: 'When jumping, reveals multiple next-system candidates to choose from.',
+          levels: [0, 2, 3, 4, 5, 6],
+          costs: [100, 100, 100, 100, 100],
+          unit: ' options'
         }
       };
 
@@ -1593,7 +1658,8 @@
           asteroidPhasing: 0,
           planetaryLaunch: 0,
           multikillSystem: 0,
-          aimStasis: 0
+          aimStasis: 0,
+          navigationPower: 0
         },
         fissionsUsed: 0,
         killsThisLaunch: 0,
@@ -1905,32 +1971,26 @@
         const msg = empty ? pick(NARRATION.empty) : (cleared ? pick(NARRATION.success) : pick(NARRATION.fail));
         const kind = empty ? 'neutral' : (cleared ? 'success' : 'fail');
         showComms(msg, kind);
-
-        fadeOverlay.classList.add('active');
-        setTimeout(() => {
-          if (!cleared && !empty) {
-            world.pp = Math.max(0, world.pp - 2);
-          }
-          regen(niceSeed());
-          saveProgress();
-          setTimeout(() => {
-            fadeOverlay.classList.remove('active');
-          }, 100);
-        }, 800);
+        const optionsCount = SKILLS.navigationPower.levels[world.skills.navigationPower] || 0;
+        if (optionsCount > 0) {
+          openNavMenu({ cleared, empty });
+          return;
+        }
+        beginTransitionToSeed(niceSeed(), cleared, empty);
       }
 
-      function createStar(cx, cy, type = 'average') {
+      function createStar(cx, cy, type = 'average', rngFn = rng) {
         const baseMass = 2.8e4 * MASS_SCALE;
         const baseRadius = Math.min(W, H) * 0.04 * SYSTEM_SCALE;
         let mass = baseMass;
-        let r = baseRadius * (0.9 + rng() * 0.2);
+        let r = baseRadius * (0.9 + rngFn() * 0.2);
         let colorProps = { core: 'rgba(255,245,220,0.95)', glow: 'rgba(255,225,150,0.18)' };
         let special = {};
 
         switch (type) {
           case 'dwarf':
             mass = baseMass * 0.5;
-            r = baseRadius * (0.35 + rng() * 0.15);
+            r = baseRadius * (0.35 + rngFn() * 0.15);
             const dwarfColors = [
               { core: '#8ab4ff', glow: 'rgba(138, 180, 255, 0.4)' }, // O
               { core: '#add8e6', glow: 'rgba(173, 216, 230, 0.4)' }, // B
@@ -1940,18 +2000,18 @@
               { core: '#ffcc88', glow: 'rgba(255, 165, 0, 0.3)' },   // K
               { core: '#ff8888', glow: 'rgba(255, 69, 0, 0.3)' }    // M
             ];
-            colorProps = dwarfColors[Math.floor(rng() * dwarfColors.length)];
+            colorProps = dwarfColors[Math.floor(rngFn() * dwarfColors.length)];
             break;
           case 'red_giant':
             mass = baseMass * 2.2;
-            r = baseRadius * (1.6 + rng() * 0.4);
+            r = baseRadius * (1.6 + rngFn() * 0.4);
             colorProps = { core: '#ff5533', glow: 'rgba(255, 85, 51, 0.3)' };
             break;
           case 'pulsar':
             mass = baseMass * 3.2;
             r = baseRadius * 0.18;
             colorProps = { core: '#fff', glow: 'rgba(220, 240, 255, 0.8)' };
-            special = { pulse: 0, beamAngle: rng() * Math.PI * 2 };
+            special = { pulse: 0, beamAngle: rngFn() * Math.PI * 2 };
             break;
           case 'black_hole':
             mass = baseMass * 5.2;
@@ -1960,12 +2020,12 @@
             special = { accretion: [] };
             for (let i = 0; i < 5; i++) {
               special.accretion.push({
-                a: rng() * Math.PI * 2,
-                rot: (0.02 + rng() * 0.04) * (rng() < 0.5 ? 1 : -1),
+                a: rngFn() * Math.PI * 2,
+                rot: (0.02 + rngFn() * 0.04) * (rngFn() < 0.5 ? 1 : -1),
                 r1: r * (1.4 + i * 0.35),
                 r2: r * (0.3 + i * 0.1),
                 color: i % 2 === 0 ? 'rgba(138, 180, 255, 0.5)' : 'rgba(255, 180, 100, 0.4)',
-                thick: 1 + rng() * 2
+                thick: 1 + rngFn() * 2
               });
             }
             break;
@@ -1982,12 +2042,12 @@
             ];
             for (let i = 0; i < 10; i++) {
               special.clouds.push({
-                ox: (rng() - 0.5) * r * 0.7,
-                oy: (rng() - 0.5) * r * 0.7,
-                r: r * (0.4 + rng() * 0.5),
-                color: cloudsCols[Math.floor(rng() * cloudsCols.length)],
-                phase: rng() * Math.PI * 2,
-                speed: 0.2 + rng() * 0.3
+                ox: (rngFn() - 0.5) * r * 0.7,
+                oy: (rngFn() - 0.5) * r * 0.7,
+                r: r * (0.4 + rngFn() * 0.5),
+                color: cloudsCols[Math.floor(rngFn() * cloudsCols.length)],
+                phase: rngFn() * Math.PI * 2,
+                speed: 0.2 + rngFn() * 0.3
               });
             }
             break;
@@ -1996,6 +2056,240 @@
         return {
           x: cx, y: cy, mass, r, type, ...colorProps, ...special,
           orbit: 0, ang: 0, omega: 0
+        };
+      }
+
+      function generateSystemData(rngFn, cx, cy) {
+        const stars = [];
+        const planets = [];
+        const stations = [];
+        const asteroids = [];
+
+        const starPick = rngFn();
+        let starType = 'average';
+        if (starPick < 0.20) starType = 'dwarf';
+        else if (starPick < 0.70) starType = 'average';
+        else if (starPick < 0.80) starType = 'red_giant';
+        else if (starPick < 0.85) starType = 'pulsar';
+        else if (starPick < 0.90) starType = 'black_hole';
+        else starType = 'supernova';
+
+        const wantsBinary = rngFn() < 0.35;
+        const isBinary = wantsBinary && starType !== 'supernova';
+        const dysonEligible = !isBinary && starType !== 'black_hole' && starType !== 'supernova';
+        const hasDysonSphere = dysonEligible && (rngFn() < DYSON_SPHERE_CHANCE);
+
+        const starTypes = [];
+        if (!isBinary) {
+          const s0 = createStar(cx, cy, starType, rngFn);
+          stars.push(s0);
+          starTypes.push(s0.type);
+        } else {
+          let dist = Math.min(W, H) * (0.05 + rngFn() * 0.06);
+          const s1 = createStar(cx, cy, starType, rngFn);
+          const s2Type = (rngFn() < 0.3 ? starType : 'average');
+          const s2 = createStar(cx, cy, s2Type, rngFn);
+          dist = Math.max(dist, (s1.r + s2.r) * 3.2 + (Math.min(W, H) * 0.01));
+
+          // Distribute mass/orbits
+          const massTotal = s1.mass + s2.mass;
+          const r1 = dist * (s2.mass / massTotal);
+          const r2 = dist * (s1.mass / massTotal);
+          const ang = rngFn() * Math.PI * 2;
+          const omega = 0.55 * Math.pow(40 / dist, 1.2);
+
+          s1.orbit = r1; s1.ang = ang; s1.omega = omega;
+          s1.x = cx + Math.cos(ang) * r1; s1.y = cy + Math.sin(ang) * r1;
+          s2.orbit = r2; s2.ang = ang + Math.PI; s2.omega = omega;
+          s2.x = cx + Math.cos(s2.ang) * r2; s2.y = cy + Math.sin(s2.ang) * r2;
+
+          stars.push(s1, s2);
+          starTypes.push(s1.type, s2.type);
+        }
+
+        let systemTypeKey = 'average';
+        if (!isBinary) {
+          systemTypeKey = stars[0]?.type || 'average';
+        } else {
+          const t = stars.map(s => s.type).sort();
+          systemTypeKey = (t.length === 2 && t[0] === t[1]) ? `binary_${t[0]}` : 'binary_mixed';
+        }
+
+        let hudLabel = formatStarType(starType);
+        if (isBinary) hudLabel = "Binary " + hudLabel;
+        if (hasDysonSphere) hudLabel += " + Dyson Sphere";
+
+        let navLabel = formatStarType(starType);
+        if (isBinary && starTypes.length === 2) {
+          const [t1, t2] = starTypes;
+          navLabel = (t1 === t2)
+            ? `Binary ${formatStarType(t1)}`
+            : `Binary ${formatStarType(t1)} + ${formatStarType(t2)}`;
+        } else if (isBinary) {
+          navLabel = "Binary " + navLabel;
+        }
+        if (hasDysonSphere) navLabel += " + Dyson Sphere";
+
+        const n = Math.floor(rngFn() * 4);
+        const minDim = Math.min(W, H);
+        const starClear = Math.max(...stars.map(s => (s.orbit || 0) + s.r * 4.0));
+        const baseOrbit = Math.max(minDim * 0.30 * SYSTEM_SCALE, starClear + (minDim * 0.08 * SYSTEM_SCALE));
+        const orbitStep = minDim * 0.11 * SYSTEM_SCALE;
+        const orbitJitter = minDim * 0.02 * SYSTEM_SCALE;
+
+        if (hasDysonSphere && stars.length === 1) {
+          const sun = stars[0];
+          const dysonCount = DYSON_SPHERE_STATION_COUNT;
+          const dysonOrbit = starClear + (minDim * 0.05 * SYSTEM_SCALE);
+          for (let i = 0; i < dysonCount; i++) {
+            const baseA = (i / dysonCount) * Math.PI * 2;
+            const a = baseA + (rngFn() - 0.5) * (Math.PI * 2 / dysonCount) * 0.25;
+            const rad = dysonOrbit + (rngFn() - 0.5) * (minDim * 0.004 * SYSTEM_SCALE);
+            const omegaS = 0.18 * Math.pow((baseOrbit / Math.max(1, rad)), 1.1) * (0.8 + rngFn() * 0.4);
+            stations.push(makeStation({
+              parent: sun,
+              a,
+              omega: omegaS,
+              rad,
+              size: Math.max(2.5, (3.3 + rngFn() * 1.4) * SYSTEM_SCALE),
+              tierKey: 'purple',
+              dyson: true,
+            }));
+          }
+        }
+
+        for (let i = 0; i < n; i++) {
+          const orbit = baseOrbit + i * orbitStep + rngFn() * orbitJitter;
+          const ang = rngFn() * Math.PI * 2;
+          const isGas = rngFn() < 0.4;
+          const r0 = (isGas ? (16 + rngFn() * 18) : (10 + rngFn() * 12)) * SYSTEM_SCALE * PLANET_RADIUS_SCALE;
+          const r = Math.max(isGas ? 9 : 7, r0);
+          const mass = (isGas ? (5.2e3 + rngFn() * 3.0e3) : (2.8e3 + rngFn() * 2.2e3)) * MASS_SCALE;
+
+          const rocky = [
+            ['rgba(210,170,140,0.95)', 'rgba(255,206,170,0.18)'],
+            ['rgba(160,190,210,0.95)', 'rgba(160,220,255,0.14)'],
+            ['rgba(220,205,175,0.95)', 'rgba(255,235,200,0.14)'],
+            ['rgba(185,165,205,0.95)', 'rgba(210,190,255,0.16)'],
+          ];
+          const gas = [
+            ['rgba(155,210,220,0.95)', 'rgba(170,245,255,0.20)'],
+            ['rgba(210,175,225,0.95)', 'rgba(255,200,255,0.16)'],
+            ['rgba(205,225,175,0.95)', 'rgba(230,255,200,0.14)'],
+            ['rgba(235,205,150,0.95)', 'rgba(255,235,190,0.14)'],
+          ];
+          const [core, glow] = (isGas ? gas : rocky)[Math.floor(rngFn() * 4)];
+          const hasRings = isGas && rngFn() < 0.45;
+          const earthLike = (!isGas && rngFn() < 0.04);
+
+          let finalCore = core;
+          let finalGlow = glow;
+          let city = null;
+          let gasBands = null;
+          let storms = null;
+
+          if (earthLike) {
+            finalCore = 'rgba(120,170,190,0.95)';
+            finalGlow = 'rgba(120,220,255,0.16)';
+            const count = 45 + Math.floor(rngFn() * 60);
+            city = {
+              hue: rngFn() < 0.7 ? 48 : 200,
+              points: Array.from({ length: count }, () => ({
+                a: rngFn() * Math.PI * 2,
+                rr: r * (0.55 + rngFn() * 0.4),
+                s: 0.8 + rngFn() * 1.6,
+                ph: rngFn() * Math.PI * 2
+              }))
+            };
+          }
+
+          if (isGas) {
+            const bandCount = 6 + Math.floor(rngFn() * 5);
+            gasBands = Array.from({ length: bandCount }, (_, bi) => {
+              const y = -1 + (2 * bi) / Math.max(1, bandCount - 1);
+              const t = bi / Math.max(1, bandCount - 1);
+              const warm = rngFn() < 0.5;
+              const c = warm
+                ? `rgba(${200 + Math.floor(40 * rngFn())},${155 + Math.floor(55 * rngFn())},${110 + Math.floor(50 * rngFn())},0.75)`
+                : `rgba(${120 + Math.floor(70 * rngFn())},${170 + Math.floor(60 * rngFn())},${200 + Math.floor(45 * rngFn())},0.65)`;
+              const h = 0.18 + rngFn() * 0.22;
+              return { y, h, c, t };
+            });
+            const stormCount = rngFn() < 0.35 ? 1 : 0;
+            storms = Array.from({ length: stormCount }, () => ({
+              x: (rngFn() - 0.5) * 0.5,
+              y: (rngFn() - 0.5) * 0.6,
+              rx: 0.18 + rngFn() * 0.22,
+              ry: 0.10 + rngFn() * 0.16,
+              rot: rngFn() * Math.PI,
+              c: rngFn() < 0.5 ? 'rgba(255,220,180,0.28)' : 'rgba(200,245,255,0.22)'
+            }));
+          }
+
+          // orbital speed: farther = slower
+          const omega = 0.32 * Math.pow((baseOrbit / orbit), 1.25);
+
+          const p = {
+            orbit, ang, omega,
+            x: cx + Math.cos(ang) * orbit,
+            y: cy + Math.sin(ang) * orbit,
+            r, mass, isGas, core: finalCore, glow: finalGlow, hasRings,
+            earthLike, city, gasBands, storms,
+          };
+          planets.push(p);
+
+          const stationsCount = 2 + Math.floor(rngFn() * 4);
+          for (let s = 0; s < stationsCount; s++) {
+            const a = rngFn() * Math.PI * 2;
+            const rad = r + (18 + rngFn() * 22) * SYSTEM_SCALE;
+            const omegaS = (0.45 + rngFn() * 0.45) * (1 / (rad / 45));
+            const tier = pickStationTier(rngFn());
+            stations.push(makeStation({
+              parent: p,
+              a,
+              omega: omegaS,
+              rad,
+              size: Math.max(2.6, (4 + rngFn() * 3) * SYSTEM_SCALE),
+              tierKey: tier.key,
+            }));
+          }
+        }
+
+        let hasAsteroidBelt = false;
+        if (rngFn() < 0.33) { // 1/3 chance
+          hasAsteroidBelt = true;
+          const beltOrbit = Math.min(W, H) * (0.80 + rngFn() * 0.25) * SYSTEM_SCALE;
+          const density = 80 + Math.floor(rngFn() * 140);
+          const beltOmega = 0.15 * Math.pow((baseOrbit * 2 / beltOrbit), 1.25);
+
+          for (let i = 0; i < density; i++) {
+            const ang = rngFn() * Math.PI * 2;
+            const dist = beltOrbit + (rngFn() - 0.5) * (Math.min(W, H) * 0.06 * SYSTEM_SCALE);
+            const r = Math.max(1.1, (1.5 + rngFn() * 2.5) * SYSTEM_SCALE);
+            asteroids.push({
+              orbit: dist,
+              ang,
+              omega: beltOmega * (0.8 + rngFn() * 0.4),
+              x: cx + Math.cos(ang) * dist,
+              y: cy + Math.sin(ang) * dist,
+              r,
+            });
+          }
+        }
+
+        return {
+          stars,
+          planets,
+          stations,
+          asteroids,
+          systemTypeKey,
+          isBinarySystem: isBinary,
+          hasDysonSphere,
+          starType,
+          starTypes,
+          hudLabel,
+          navLabel,
+          hasAsteroidBelt,
         };
       }
 
@@ -2043,7 +2337,7 @@
         const wantsBinary = rng() < 0.35;
         const isBinary = wantsBinary && starType !== 'supernova';
         const dysonEligible = !isBinary && starType !== 'black_hole' && starType !== 'supernova';
-        const hasDysonSphere = dysonEligible;
+        const hasDysonSphere = dysonEligible && (rng() < DYSON_SPHERE_CHANCE);
         world.hasDysonSphere = hasDysonSphere;
 
         // Format star type display
@@ -2096,7 +2390,7 @@
 
         if (world.hasDysonSphere && world.stars.length === 1) {
           const sun = world.stars[0];
-          const dysonCount = 60;
+          const dysonCount = DYSON_SPHERE_STATION_COUNT;
           const dysonOrbit = starClear + (minDim * 0.05 * SYSTEM_SCALE);
           for (let i = 0; i < dysonCount; i++) {
             const baseA = (i / dysonCount) * Math.PI * 2;
@@ -2353,6 +2647,7 @@
         } else {
           if (settingsMenuEl.classList.contains('active')) settingsMenuEl.classList.remove('active');
           if (trophyRoomEl.classList.contains('active')) trophyRoomEl.classList.remove('active');
+          if (navMenuEl && navMenuEl.classList.contains('active')) closeNavMenu();
           renderSkillTree();
           skillTreeEl.classList.add('active');
           mainMenuEl.classList.add('hidden');
@@ -2368,6 +2663,7 @@
         } else {
           if (settingsMenuEl.classList.contains('active')) settingsMenuEl.classList.remove('active');
           if (skillTreeEl.classList.contains('active')) skillTreeEl.classList.remove('active');
+          if (navMenuEl && navMenuEl.classList.contains('active')) closeNavMenu();
           renderTrophyRoom();
           trophyRoomEl.classList.add('active');
           mainMenuEl.classList.add('hidden');
@@ -2392,6 +2688,7 @@
       btnCloseSettings.addEventListener('click', toggleSettings);
       btnResetProgress.addEventListener('click', resetProgress);
       btnNextSystem.addEventListener('click', transitionToNewSystem);
+      if (btnCloseNav) btnCloseNav.addEventListener('click', () => closeNavMenu());
       if (btnShootAgain) btnShootAgain.addEventListener('click', resetToAimEntry);
       if (btnPerfHud) btnPerfHud.addEventListener('click', togglePerfPanel);
       if (btnModeNormal) btnModeNormal.addEventListener('click', () => setMode('normal'));
@@ -2407,10 +2704,104 @@
         } else {
           if (skillTreeEl.classList.contains('active')) skillTreeEl.classList.remove('active');
           if (trophyRoomEl.classList.contains('active')) trophyRoomEl.classList.remove('active');
+          if (navMenuEl && navMenuEl.classList.contains('active')) closeNavMenu();
           settingsMenuEl.classList.add('active');
           mainMenuEl.classList.add('hidden');
           refreshModeUI();
         }
+      }
+
+      let navPending = null;
+      function closeNavMenu() {
+        if (!navMenuEl) return;
+        navMenuEl.classList.remove('active');
+        if (navGridEl) navGridEl.innerHTML = '';
+        if (navHelpEl) navHelpEl.textContent = '';
+        navPending = null;
+        updateHUD();
+      }
+
+      function countStationsByTier(stations) {
+        const counts = { grey: 0, red: 0, purple: 0, total: 0 };
+        for (const st of stations) {
+          if (!st) continue;
+          if (st.tier === 'red') counts.red++;
+          else if (st.tier === 'purple') counts.purple++;
+          else counts.grey++;
+          counts.total++;
+        }
+        return counts;
+      }
+
+      function openNavMenu({ cleared, empty }) {
+        if (!navMenuEl || !navGridEl || !navPpEl) return;
+        const optionsCount = SKILLS.navigationPower.levels[world.skills.navigationPower] || 0;
+        if (optionsCount <= 0) return;
+
+        if (skillTreeEl.classList.contains('active')) skillTreeEl.classList.remove('active');
+        if (trophyRoomEl.classList.contains('active')) trophyRoomEl.classList.remove('active');
+        if (settingsMenuEl.classList.contains('active')) settingsMenuEl.classList.remove('active');
+
+        navPending = { cleared, empty };
+        navPpEl.textContent = String(world.pp);
+        if (navHelpEl) {
+          navHelpEl.textContent = `Choose your next system (${optionsCount} options). Upgrade Navigation Power for more.`;
+        }
+
+        navGridEl.innerHTML = '';
+        const seeds = [];
+        const seen = new Set();
+        while (seeds.length < optionsCount) {
+          const s = niceSeed();
+          if (seen.has(s)) continue;
+          seen.add(s);
+          seeds.push(s);
+        }
+
+        const cx = W / 2, cy = H / 2;
+        for (const s of seeds) {
+          const r0 = mulberry32(hashSeed(s));
+          const sys = generateSystemData(r0, cx, cy);
+          const counts = countStationsByTier(sys.stations);
+          const belt = sys.hasAsteroidBelt ? 'Yes' : 'No';
+          const dyson = sys.hasDysonSphere ? 'Yes' : 'No';
+
+          const card = document.createElement('div');
+          card.className = 'skill-card';
+          card.innerHTML = `
+            <div class="skill-name">${sys.navLabel}</div>
+            <div class="skill-desc">Seed: ${s} • Planets: ${sys.planets.length} • Belt: ${belt} • Dyson: ${dyson}</div>
+            <div class="skill-stats">Stations: grey ${counts.grey} • red ${counts.red} • purple ${counts.purple} (total ${counts.total})</div>
+            <button class="btn-upgrade">Jump</button>
+          `;
+          const btn = card.querySelector('button');
+          btn.addEventListener('click', () => {
+            const pending = navPending;
+            closeNavMenu();
+            if (!pending) return;
+            beginTransitionToSeed(s, pending.cleared, pending.empty);
+          });
+          navGridEl.appendChild(card);
+        }
+
+        navMenuEl.classList.add('active');
+        mainMenuEl.classList.add('hidden');
+        btnNextSystem.style.display = 'none';
+      }
+
+      function beginTransitionToSeed(nextSeed, cleared, empty) {
+        hideShootAgain();
+        fadeOverlay.classList.add('active');
+        setTimeout(() => {
+          if (!cleared && !empty) {
+            world.pp = Math.max(0, world.pp - 2);
+          }
+          regen(nextSeed);
+          saveProgress();
+          setTimeout(() => {
+            fadeOverlay.classList.remove('active');
+          }, 100);
+        }, 800);
       }
 
       function resetProgress() {
@@ -2497,7 +2888,9 @@
         }
 
         if (e.key === 'Escape') {
-          if (skillTreeEl.classList.contains('active')) {
+          if (navMenuEl && navMenuEl.classList.contains('active')) {
+            closeNavMenu();
+          } else if (skillTreeEl.classList.contains('active')) {
             toggleSkillTree();
           } else if (trophyRoomEl.classList.contains('active')) {
             toggleTrophyRoom();
@@ -3341,7 +3734,8 @@
         const uiPaused =
           skillTreeEl.classList.contains('active') ||
           trophyRoomEl.classList.contains('active') ||
-          settingsMenuEl.classList.contains('active');
+          settingsMenuEl.classList.contains('active') ||
+          (navMenuEl && navMenuEl.classList.contains('active'));
 
         const timeStopped = world.skills.aimStasis > 0 && world.aiming;
         if (world.phase !== 'menu' && world.settings.mode === 'timed' && !world.timeExpired && !uiPaused && !timeStopped) {
