@@ -941,6 +941,7 @@
       <div class="menu-story">
         <strong>Mission brief:</strong> You are a Von Neumann probe sent to disable automated space stations in every planetary system you encounter.
         Slingshot through gravity wells, thread debris fields, and leave nothing broadcasting.
+        Stations have durability: grey (1), red (2), purple (10). Rarely, a Dyson Sphere surrounds the star with 100 purple stations.
       </div>
     </div>
     <div class="menu-actions">
@@ -1315,6 +1316,38 @@
       const SYSTEM_SCALE = 0.5; // visual/world scale to "zoom out" the generated system
       const MASS_SCALE = SYSTEM_SCALE * SYSTEM_SCALE; // keep gravity feel similar after scaling distances
       const PLANET_RADIUS_SCALE = 0.8; // reduce planet radius to prevent overlap
+      const STATION_TIERS = {
+        grey: {
+          key: 'grey',
+          maxHp: 1,
+          halo: 'rgba(200, 220, 235, 0.10)',
+          wing: 'rgba(210, 225, 235, 0.55)',
+          core: 'rgba(235, 245, 250, 0.85)',
+          shadow: 'rgba(200, 220, 235, 0.65)',
+          hp: 'rgba(220, 235, 245, 0.55)',
+        },
+        red: {
+          key: 'red',
+          maxHp: 2,
+          halo: 'rgba(255, 90, 80, 0.10)',
+          wing: 'rgba(255, 120, 110, 0.60)',
+          core: 'rgba(255, 160, 150, 0.88)',
+          shadow: 'rgba(255, 120, 110, 0.85)',
+          hp: 'rgba(255, 140, 130, 0.70)',
+        },
+        purple: {
+          key: 'purple',
+          maxHp: 10,
+          halo: 'rgba(200, 140, 255, 0.10)',
+          wing: 'rgba(205, 165, 255, 0.62)',
+          core: 'rgba(225, 190, 255, 0.90)',
+          shadow: 'rgba(200, 140, 255, 0.95)',
+          hp: 'rgba(215, 175, 255, 0.80)',
+        },
+      };
+      const STATION_SPRITE_BASE_SIZE = 3.0;
+      const STATION_SPRITE_CSS_DIM = 40;
+      const stationSpriteCache = new Map();
 
       // No forced timeout: chasing stable orbit is part of the fun.
       const MAX_STEPS = Infinity;
@@ -1331,6 +1364,97 @@
 
       function updateGravityBodies() {
         world.gravityBodies = [...world.stars, ...world.planets];
+      }
+
+      function pickStationTier(roll) {
+        // Mostly grey, some red, rare purple.
+        if (roll < 0.04) return STATION_TIERS.purple;
+        if (roll < 0.18) return STATION_TIERS.red;
+        return STATION_TIERS.grey;
+      }
+
+      function makeStation({ parent, a, omega, rad, size, tierKey = 'grey', dyson = false }) {
+        const tier = STATION_TIERS[tierKey] || STATION_TIERS.grey;
+        return {
+          parent,
+          a,
+          omega,
+          rad,
+          x: parent.x + Math.cos(a) * rad,
+          y: parent.y + Math.sin(a) * rad,
+          alive: true,
+          size,
+          tier: tier.key,
+          hp: tier.maxHp,
+          maxHp: tier.maxHp,
+          hitCooldown: 0,
+          dyson,
+        };
+      }
+
+      function getStationSprite(tierKey) {
+        const tier = STATION_TIERS[tierKey] || STATION_TIERS.grey;
+        const key = `${tier.key}@${DPR}`;
+        const cached = stationSpriteCache.get(key);
+        if (cached) return cached;
+
+        const cssDim = STATION_SPRITE_CSS_DIM;
+        const pxDim = Math.ceil(cssDim * DPR);
+        const c = document.createElement('canvas');
+        c.width = pxDim;
+        c.height = pxDim;
+
+        const cctx = c.getContext('2d');
+        cctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        cctx.clearRect(0, 0, cssDim, cssDim);
+
+        const s = STATION_SPRITE_BASE_SIZE;
+        cctx.save();
+        cctx.translate(cssDim / 2, cssDim / 2);
+
+        // Faint Halo
+        cctx.save();
+        cctx.globalCompositeOperation = 'lighter';
+        cctx.strokeStyle = tier.halo;
+        cctx.lineWidth = 1;
+        cctx.beginPath();
+        cctx.arc(0, 0, s * 2.5, 0, Math.PI * 2);
+        cctx.stroke();
+        cctx.restore();
+
+        // Solar Panels / Wings
+        cctx.strokeStyle = tier.wing;
+        cctx.lineWidth = 0.8;
+        cctx.beginPath();
+        // Left wing
+        cctx.moveTo(-s * 0.5, 0);
+        cctx.lineTo(-s * 2, -s * 0.3);
+        cctx.lineTo(-s * 2, s * 0.3);
+        cctx.closePath();
+        // Right wing
+        cctx.moveTo(s * 0.5, 0);
+        cctx.lineTo(s * 2, -s * 0.3);
+        cctx.lineTo(s * 2, s * 0.3);
+        cctx.closePath();
+        cctx.stroke();
+
+        // Central Core (Diamond)
+        cctx.fillStyle = tier.core;
+        cctx.shadowBlur = 8;
+        cctx.shadowColor = tier.shadow;
+        cctx.beginPath();
+        cctx.moveTo(0, -s);
+        cctx.lineTo(s * 0.6, 0);
+        cctx.lineTo(0, s);
+        cctx.lineTo(-s * 0.6, 0);
+        cctx.closePath();
+        cctx.fill();
+
+        cctx.restore();
+
+        const sprite = { canvas: c, cssDim, baseS: STATION_SPRITE_BASE_SIZE };
+        stationSpriteCache.set(key, sprite);
+        return sprite;
       }
 
       function buildStarfield() {
@@ -1398,6 +1522,13 @@
           levels: [0, 1],
           costs: [50],
           unit: ''
+        },
+        aimStasis: {
+          name: 'Aim Stasis',
+          desc: 'Stops time while aiming (freezes orbits and the timer).',
+          levels: [0, 1],
+          costs: [20],
+          unit: ''
         }
       };
 
@@ -1444,6 +1575,7 @@
 
         systemTypeKey: 'average',
         isBinarySystem: false,
+        hasDysonSphere: false,
         timeLeft: 0,
         timeExpired: false,
         launchesThisSystem: 0,
@@ -1460,7 +1592,8 @@
           kineticImpact: 0,
           asteroidPhasing: 0,
           planetaryLaunch: 0,
-          multikillSystem: 0
+          multikillSystem: 0,
+          aimStasis: 0
         },
         fissionsUsed: 0,
         killsThisLaunch: 0,
@@ -1479,9 +1612,15 @@
         frameSamples: new Float32Array(PERF_WINDOW),
         simSamples: new Float32Array(PERF_WINDOW),
         drawSamples: new Float32Array(PERF_WINDOW),
+        rafSamples: new Float32Array(PERF_WINDOW),
+        orbitsSamples: new Float32Array(PERF_WINDOW),
+        stationsSamples: new Float32Array(PERF_WINDOW),
         frameTotal: 0,
         simTotal: 0,
         drawTotal: 0,
+        rafTotal: 0,
+        orbitsTotal: 0,
+        stationsTotal: 0,
         idx: 0,
         count: 0,
         lastUpdate: 0,
@@ -1491,9 +1630,15 @@
         perfStats.frameSamples.fill(0);
         perfStats.simSamples.fill(0);
         perfStats.drawSamples.fill(0);
+        perfStats.rafSamples.fill(0);
+        perfStats.orbitsSamples.fill(0);
+        perfStats.stationsSamples.fill(0);
         perfStats.frameTotal = 0;
         perfStats.simTotal = 0;
         perfStats.drawTotal = 0;
+        perfStats.rafTotal = 0;
+        perfStats.orbitsTotal = 0;
+        perfStats.stationsTotal = 0;
         perfStats.idx = 0;
         perfStats.count = 0;
         perfStats.lastUpdate = 0;
@@ -1508,16 +1653,22 @@
         updatePerfPanel();
       }
 
-      function recordPerf(frameMs, simMs, drawMs) {
+      function recordPerf(workMs, simMs, drawMs, rafMs, orbitsMs, stationsMs) {
         if (!perfStats.enabled) return;
         const i = perfStats.idx;
-        perfStats.frameTotal += frameMs - perfStats.frameSamples[i];
+        perfStats.frameTotal += workMs - perfStats.frameSamples[i];
         perfStats.simTotal += simMs - perfStats.simSamples[i];
         perfStats.drawTotal += drawMs - perfStats.drawSamples[i];
+        perfStats.rafTotal += rafMs - perfStats.rafSamples[i];
+        perfStats.orbitsTotal += orbitsMs - perfStats.orbitsSamples[i];
+        perfStats.stationsTotal += stationsMs - perfStats.stationsSamples[i];
 
-        perfStats.frameSamples[i] = frameMs;
+        perfStats.frameSamples[i] = workMs;
         perfStats.simSamples[i] = simMs;
         perfStats.drawSamples[i] = drawMs;
+        perfStats.rafSamples[i] = rafMs;
+        perfStats.orbitsSamples[i] = orbitsMs;
+        perfStats.stationsSamples[i] = stationsMs;
 
         perfStats.idx = (i + 1) % PERF_WINDOW;
         perfStats.count = Math.min(perfStats.count + 1, PERF_WINDOW);
@@ -1535,19 +1686,32 @@
         if (!perfStats.enabled) return;
 
         const count = Math.max(1, perfStats.count);
-        const avgFrame = perfStats.frameTotal / count;
+        const avgWork = perfStats.frameTotal / count;
         const avgSim = perfStats.simTotal / count;
         const avgDraw = perfStats.drawTotal / count;
-        const fps = Math.max(1, 1000 / Math.max(1, avgFrame));
+        const avgRaf = perfStats.rafTotal / count;
+        const rafFps = 1000 / Math.max(1, avgRaf);
+        const util = clamp(avgWork / Math.max(1, avgRaf), 0, 9);
+        const avgOrbits = perfStats.orbitsTotal / count;
+        const avgStations = perfStats.stationsTotal / count;
+        let maxRaf = 0;
+        let stall33 = 0;
+        for (let k = 0; k < perfStats.count; k++) {
+          const v = perfStats.rafSamples[k];
+          if (v > maxRaf) maxRaf = v;
+          if (v > 33.3) stall33++;
+        }
         let aliveStations = 0;
         for (const st of world.stations) if (st.alive) aliveStations++;
 
         perfMetricsEl.innerHTML = `
-          <div>FPS: ${fps.toFixed(1)} (${avgFrame.toFixed(2)}ms)</div>
-          <div>Sim: ${avgSim.toFixed(2)}ms | Draw: ${avgDraw.toFixed(2)}ms</div>
+          <div>RAF: ${rafFps.toFixed(1)} fps (${avgRaf.toFixed(2)}ms)</div>
+          <div>Work: ${avgWork.toFixed(2)}ms (${(util * 100).toFixed(0)}%) | Sim: ${avgSim.toFixed(2)}ms | Draw: ${avgDraw.toFixed(2)}ms</div>
+          <div class="perf-subtle">Orbits: ${avgOrbits.toFixed(2)}ms | Stations draw: ${avgStations.toFixed(2)}ms (${(avgStations * 100 / Math.max(0.01, avgDraw)).toFixed(0)}%)</div>
           <div class="perf-subtle">Warp ${world.warp}x | Preview ${world.preview.length} pts</div>
           <div class="perf-subtle">Bodies: ${world.gravityBodies.length} | Stations: ${aliveStations}/${world.totalStations}</div>
-          <div class="perf-subtle">Meteors: ${world.meteors.length} | Asteroids: ${world.asteroids.length} | Sparks: ${sparks.length}</div>
+          <div class="perf-subtle">Meteors: ${world.meteors.length} | Asteroids: ${world.asteroids.length} | Sparks: ${sparks.length}/${MAX_SPARKS}</div>
+          <div class="perf-subtle">Worst rAF: ${maxRaf.toFixed(1)}ms | >33ms frames: ${stall33}/${perfStats.count}</div>
         `;
       }
 
@@ -1715,6 +1879,7 @@
 
       function resize() {
         DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        stationSpriteCache.clear();
         const vv = window.visualViewport;
         W = Math.floor(vv ? vv.width : window.innerWidth);
         H = Math.floor(vv ? vv.height : window.innerHeight);
@@ -1856,6 +2021,7 @@
         world.clearedCommsShown = false;
         world.systemTypeKey = 'average';
         world.isBinarySystem = false;
+        world.hasDysonSphere = false;
         applyModeToCurrentSystem();
         hideShootAgain();
         world.perfectClearBonusGiven = false;
@@ -1874,12 +2040,17 @@
         else if (starPick < 0.90) starType = 'black_hole';
         else starType = 'supernova';
 
-        const isBinary = rng() < 0.35;
+        const wantsBinary = rng() < 0.35;
+        const isBinary = wantsBinary && starType !== 'supernova';
+        const dysonEligible = !isBinary && starType !== 'black_hole' && starType !== 'supernova';
+        const hasDysonSphere = dysonEligible;
+        world.hasDysonSphere = hasDysonSphere;
 
         // Format star type display
         const formatType = (t) => t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         let typeStr = formatType(starType);
         if (isBinary) typeStr = "Binary " + typeStr;
+        if (hasDysonSphere) typeStr += " + Dyson Sphere";
         starTypeEl.textContent = typeStr;
 
         if (!isBinary) {
@@ -1922,6 +2093,27 @@
         const baseOrbit = Math.max(minDim * 0.30 * SYSTEM_SCALE, starClear + (minDim * 0.08 * SYSTEM_SCALE));
         const orbitStep = minDim * 0.11 * SYSTEM_SCALE;
         const orbitJitter = minDim * 0.02 * SYSTEM_SCALE;
+
+        if (world.hasDysonSphere && world.stars.length === 1) {
+          const sun = world.stars[0];
+          const dysonCount = 60;
+          const dysonOrbit = starClear + (minDim * 0.05 * SYSTEM_SCALE);
+          for (let i = 0; i < dysonCount; i++) {
+            const baseA = (i / dysonCount) * Math.PI * 2;
+            const a = baseA + (rng() - 0.5) * (Math.PI * 2 / dysonCount) * 0.25;
+            const rad = dysonOrbit + (rng() - 0.5) * (minDim * 0.004 * SYSTEM_SCALE);
+            const omegaS = 0.18 * Math.pow((baseOrbit / Math.max(1, rad)), 1.1) * (0.8 + rng() * 0.4);
+            world.stations.push(makeStation({
+              parent: sun,
+              a,
+              omega: omegaS,
+              rad,
+              size: Math.max(2.5, (3.3 + rng() * 1.4) * SYSTEM_SCALE),
+              tierKey: 'purple',
+              dyson: true,
+            }));
+          }
+        }
 
         for (let i = 0; i < n; i++) {
           const orbit = baseOrbit + i * orbitStep + rng() * orbitJitter;
@@ -2008,16 +2200,15 @@
             const a = rng() * Math.PI * 2;
             const rad = r + (18 + rng() * 22) * SYSTEM_SCALE;
             const omegaS = (0.45 + rng() * 0.45) * (1 / (rad / 45));
-            world.stations.push({
-              planet: p,
+            const tier = pickStationTier(rng());
+            world.stations.push(makeStation({
+              parent: p,
               a,
               omega: omegaS,
               rad,
-              x: p.x + Math.cos(a) * rad,
-              y: p.y + Math.sin(a) * rad,
-              alive: true,
               size: Math.max(2.6, (4 + rng() * 3) * SYSTEM_SCALE),
-            });
+              tierKey: tier.key,
+            }));
           }
         }
 
@@ -2048,6 +2239,7 @@
       }
 
       function updateOrbits(dt) {
+        if (dt <= 0) return;
         const cx = W / 2, cy = H / 2;
 
         for (const s of world.stars) {
@@ -2079,9 +2271,10 @@
 
         for (const st of world.stations) {
           st.a += st.omega * dt;
-          const p = st.planet;
-          st.x = p.x + Math.cos(st.a) * st.rad;
-          st.y = p.y + Math.sin(st.a) * st.rad;
+          const parent = st.parent || st.planet;
+          if (!parent) continue;
+          st.x = parent.x + Math.cos(st.a) * st.rad;
+          st.y = parent.y + Math.sin(st.a) * st.rad;
         }
 
         for (const ast of world.asteroids) {
@@ -2526,6 +2719,10 @@
       function integrate() {
         if (world.phase !== 'sim') return;
 
+        for (const st of world.stations) {
+          if (st.hitCooldown > 0) st.hitCooldown = Math.max(0, st.hitCooldown - DT);
+        }
+
         const radiusMult = SKILLS.kineticImpact.levels[world.skills.kineticImpact];
         const bodies = world.gravityBodies;
         let aliveCount = 0;
@@ -2549,21 +2746,29 @@
           // Collisions: stations
           for (const st of world.stations) {
             if (!st.alive) continue;
+            if (st.hitCooldown > 0) continue;
             const d2 = len2(m.x - st.x, m.y - st.y);
             const hitR = (st.size + m.r * radiusMult + 3);
             if (d2 <= hitR * hitR) {
-              st.alive = false;
+              st.hitCooldown = 0.12;
+              st.hp = Math.max(0, (Number.isFinite(st.hp) ? st.hp : 1) - 1);
+              const destroyed = st.hp <= 0;
+              if (destroyed) st.alive = false;
 
-              let pts = 1;
-              if (world.skills.multikillSystem > 0) {
-                pts = Math.pow(2, world.killsThisLaunch);
-                world.killsThisLaunch++;
+              if (destroyed) {
+                let pts = 1;
+                if (world.skills.multikillSystem > 0) {
+                  pts = Math.pow(2, world.killsThisLaunch);
+                  world.killsThisLaunch++;
+                }
+
+                world.pp += pts;
+                world.score++;
+                updateHUD();
+                spawnBurst(st.x, st.y, 14);
+              } else {
+                spawnBurst(st.x, st.y, 6);
               }
-
-              world.pp += pts;
-              world.score++;
-              updateHUD();
-              spawnBurst(st.x, st.y, 14);
             }
           }
 
@@ -2678,8 +2883,11 @@
 
       // ---------- Particles ----------
       const sparks = [];
+      const MAX_SPARKS = 1400;
       function spawnBurst(x, y, n) {
+        if (sparks.length >= MAX_SPARKS) return;
         for (let i = 0; i < n; i++) {
+          if (sparks.length >= MAX_SPARKS) break;
           const a = rng() * Math.PI * 2;
           const v = 40 + rng() * 180;
           sparks.push({
@@ -2693,12 +2901,13 @@
         }
       }
 
-      function stepSparks() {
+      function stepSparks(dt) {
+        if (!dt) return;
         for (let i = sparks.length - 1; i >= 0; i--) {
           const s = sparks[i];
-          s.t += DT;
-          s.x += s.vx * DT;
-          s.y += s.vy * DT;
+          s.t += dt;
+          s.x += s.vx * dt;
+          s.y += s.vy * dt;
           s.vx *= 0.985;
           s.vy *= 0.985;
           if (s.t > s.life) sparks.splice(i, 1);
@@ -2891,48 +3100,36 @@
           if (!st.alive) continue;
           const x = st.x, y = st.y;
           const s = st.size;
+          const tier = STATION_TIERS[st.tier] || STATION_TIERS.grey;
+          const sprite = getStationSprite(tier.key);
+          const scale = s / sprite.baseS;
+          const dim = sprite.cssDim * scale;
 
           ctx.save();
           ctx.translate(x, y);
           ctx.rotate(st.a + Math.PI / 2);
 
-          // Faint Halo
-          ctx.save();
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.strokeStyle = 'rgba(120, 210, 255, 0.12)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(0, 0, s * 2.5, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.restore();
+          // Sprite draw (pre-rasterized): much cheaper than per-station shadows/paths.
+          ctx.drawImage(sprite.canvas, -dim / 2, -dim / 2, dim, dim);
 
-          // Solar Panels / Wings
-          ctx.strokeStyle = 'rgba(160, 220, 255, 0.6)';
-          ctx.lineWidth = 0.8;
-          ctx.beginPath();
-          // Left wing
-          ctx.moveTo(-s * 0.5, 0);
-          ctx.lineTo(-s * 2, -s * 0.3);
-          ctx.lineTo(-s * 2, s * 0.3);
-          ctx.closePath();
-          // Right wing
-          ctx.moveTo(s * 0.5, 0);
-          ctx.lineTo(s * 2, -s * 0.3);
-          ctx.lineTo(s * 2, s * 0.3);
-          ctx.closePath();
-          ctx.stroke();
-
-          // Central Elegant Core (Diamond)
-          ctx.fillStyle = 'rgba(230, 250, 255, 0.9)';
-          ctx.shadowBlur = 8;
-          ctx.shadowColor = 'rgba(120, 210, 255, 0.8)';
-          ctx.beginPath();
-          ctx.moveTo(0, -s);
-          ctx.lineTo(s * 0.6, 0);
-          ctx.lineTo(0, s);
-          ctx.lineTo(-s * 0.6, 0);
-          ctx.closePath();
-          ctx.fill();
+          // Only draw HP ring when damaged / recently hit.
+          if ((st.maxHp || 1) > 1 && ((st.hp || 0) < (st.maxHp || 1) || (st.hitCooldown || 0) > 0)) {
+            const frac = clamp((st.hp || 0) / Math.max(1, st.maxHp || 1), 0, 1);
+            const hitT = clamp((st.hitCooldown || 0) / 0.12, 0, 1);
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.7 + 0.3 * hitT;
+            ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 1.55, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = tier.hp;
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 1.55, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+            ctx.stroke();
+            ctx.restore();
+          }
 
           ctx.restore();
         }
@@ -3113,18 +3310,31 @@
         drawOrbits();
         drawStars();
         drawPlanets();
-        drawStations();
+
+        let stationsMs = 0;
+        if (perfStats.enabled) {
+          const t0 = performance.now();
+          drawStations();
+          stationsMs = performance.now() - t0;
+        } else {
+          drawStations();
+        }
+
         drawAsteroids();
         drawPreview();
         drawMeteor();
         drawSparks();
         drawAiming();
+        return stationsMs;
       }
 
       // ---------- Main loop ----------
       let lastT = performance.now();
+      let lastFrameStartRaw = lastT;
       function tick() {
         const frameStart = performance.now();
+        const rafMs = frameStart - lastFrameStartRaw;
+        lastFrameStartRaw = frameStart;
         const dt = Math.min(0.05, (frameStart - lastT) / 1000);
         lastT = frameStart;
 
@@ -3133,7 +3343,8 @@
           trophyRoomEl.classList.contains('active') ||
           settingsMenuEl.classList.contains('active');
 
-        if (world.phase !== 'menu' && world.settings.mode === 'timed' && !world.timeExpired && !uiPaused) {
+        const timeStopped = world.skills.aimStasis > 0 && world.aiming;
+        if (world.phase !== 'menu' && world.settings.mode === 'timed' && !world.timeExpired && !uiPaused && !timeStopped) {
           world.timeLeft -= dt;
           if (world.timeLeft <= 0) {
             world.timeLeft = 0;
@@ -3149,23 +3360,36 @@
         if (world.phase === 'aimSpeed' && world.previewDirty) computePreview();
 
         const simStart = performance.now();
+        let orbitsMs = 0;
         if (world.phase === 'sim') {
           const simDt = dt * world.warp;
           const sub = Math.max(1, Math.ceil(simDt / (DT * 1.25)));
           for (let i = 0; i < sub; i++) {
-            updateOrbits(simDt / sub);
+            if (perfStats.enabled) {
+              const t0 = performance.now();
+              updateOrbits(simDt / sub);
+              orbitsMs += performance.now() - t0;
+            } else {
+              updateOrbits(simDt / sub);
+            }
             integrate();
           }
         } else {
-          updateOrbits(dt);
+          if (perfStats.enabled) {
+            const t0 = performance.now();
+            updateOrbits(timeStopped ? 0 : dt);
+            orbitsMs = performance.now() - t0;
+          } else {
+            updateOrbits(timeStopped ? 0 : dt);
+          }
         }
 
-        stepSparks();
+        stepSparks(timeStopped ? 0 : DT);
         const simMs = performance.now() - simStart;
         const drawStart = performance.now();
-        draw();
+        const stationsMs = draw();
         const drawMs = performance.now() - drawStart;
-        recordPerf(performance.now() - frameStart, simMs, drawMs);
+        recordPerf(performance.now() - frameStart, simMs, drawMs, rafMs, orbitsMs, stationsMs);
         requestAnimationFrame(tick);
       }
 
