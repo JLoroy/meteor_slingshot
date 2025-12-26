@@ -281,6 +281,49 @@
       margin-top: 40px;
     }
 
+    .tree-column {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tree-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      text-align: center;
+      color: rgba(138, 180, 255, 0.95);
+      text-shadow: 0 0 20px rgba(138, 180, 255, 0.25);
+      padding: 12px 10px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(138, 180, 255, 0.12);
+    }
+
+    .tree-nodes {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tree-link {
+      text-align: center;
+      font-family: ui-monospace, 'SFMono-Regular', 'Roboto Mono', monospace;
+      color: rgba(226, 232, 240, 0.30);
+      user-select: none;
+      margin: -10px 0;
+    }
+
+    .skill-req {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      font-family: ui-monospace, 'SFMono-Regular', 'Roboto Mono', monospace;
+      color: rgba(255, 210, 140, 0.88);
+    }
+
     .skill-card {
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(138, 180, 255, 0.15);
@@ -1185,7 +1228,17 @@
         oneShotClear: { name: 'Perfect Clear', desc: 'Clear a system in a single launch.' },
 
         resetProgress: { name: 'Tabula Rasa', desc: 'Reset your progress.' },
+        ppMilkyWay: { name: 'Galactic Census', desc: 'Accumulate more PP than there are stars in the Milky Way (~1e11).' },
+        ppUniverse: { name: 'Cosmic Census', desc: 'Accumulate more PP than there are stars in the observable universe (~1e22).' },
       };
+
+      const PP_TROPHY_MILKY_WAY = 1e11;
+      const PP_TROPHY_UNIVERSE = 1e22;
+
+      function checkPpTrophies() {
+        if (world.pp >= PP_TROPHY_MILKY_WAY) unlockTrophy('ppMilkyWay');
+        if (world.pp >= PP_TROPHY_UNIVERSE) unlockTrophy('ppUniverse');
+      }
 
       function unlockTrophy(id) {
         if (!TROPHIES[id]) return;
@@ -1560,6 +1613,13 @@
           costs: [8, 25, 60, 150],
           unit: 'x radius'
         },
+        impactDamage: {
+          name: 'Impact Damage',
+          desc: 'Increases damage dealt to station HP per hit.',
+          levels: [1, 2, 3, 4, 5],
+          costs: [20, 40, 80, 160],
+          unit: ' dmg'
+        },
         asteroidPhasing: {
           name: 'Asteroid Phasing',
           desc: 'Lets the probe pass through asteroid belts without being destroyed.',
@@ -1659,7 +1719,8 @@
           planetaryLaunch: 0,
           multikillSystem: 0,
           aimStasis: 0,
-          navigationPower: 0
+          navigationPower: 0,
+          impactDamage: 0
         },
         fissionsUsed: 0,
         killsThisLaunch: 0,
@@ -1871,6 +1932,7 @@
         totalCountEl.textContent = world.totalStations;
         ppEl.textContent = world.pp;
         stPpEl.textContent = world.pp;
+        checkPpTrophies();
         updateModeHud();
 
         if (world.totalStations === 0) {
@@ -1920,6 +1982,7 @@
           world.pp += 2;
           ppEl.textContent = world.pp;
           stPpEl.textContent = world.pp;
+          checkPpTrophies();
           showComms('PERFECT CLEAR: +2 PP', 'success', 3200);
         }
 
@@ -2820,26 +2883,98 @@
         }
       }
 
-      function renderSkillTree() {
-        skillGridEl.innerHTML = '';
-        for (const [id, skill] of Object.entries(SKILLS)) {
-          const currentLevel = world.skills[id];
-          const isMax = currentLevel >= skill.costs.length;
-          const nextCost = isMax ? null : skill.costs[currentLevel];
-          const canAfford = nextCost !== null && world.pp >= nextCost;
-          const currentVal = skill.levels[currentLevel];
+      const SKILL_TREES = [
+        { title: 'Power', skills: ['kineticImpact', 'impactDamage', 'binaryFission', 'chainFission'] },
+        { title: 'Planning', skills: ['planetaryLaunch', 'predictiveProcessing', 'aimStasis'] },
+        { title: 'Strategy', skills: ['asteroidPhasing', 'multikillSystem', 'navigationPower'] },
+      ];
 
-          const card = document.createElement('div');
-          card.className = 'skill-card';
-          card.innerHTML = `
-            <div class="skill-name">${skill.name}${skill.wip ? '<span class="wip">WIP</span>' : ''}</div>
-            <div class="skill-desc">${skill.desc}</div>
-            <div class="skill-stats">Current: ${currentVal}${skill.unit} ${isMax ? '(MAX)' : `➔ ${skill.levels[currentLevel + 1]}${skill.unit}`}</div>
-            <button class="btn-upgrade" ${(!canAfford || (skill.wip && currentLevel > 0)) ? 'disabled' : ''} onclick="upgradeSkill('${id}')">
-              ${isMax ? 'MAXED' : (skill.wip && currentLevel > 0 ? 'WIP' : `Upgrade (${nextCost} PP)`)}
-            </button>
-          `;
-          skillGridEl.appendChild(card);
+      const SKILL_PREREQS = {
+        impactDamage: [{ id: 'kineticImpact', minLevel: 1 }],
+        binaryFission: [{ id: 'impactDamage', minLevel: 1 }],
+        chainFission: [{ id: 'binaryFission', minLevel: 1 }],
+        predictiveProcessing: [{ id: 'planetaryLaunch', minLevel: 1 }],
+        aimStasis: [{ id: 'predictiveProcessing', minLevel: 1 }],
+        multikillSystem: [{ id: 'asteroidPhasing', minLevel: 1 }],
+        navigationPower: [{ id: 'multikillSystem', minLevel: 1 }],
+      };
+
+      function unmetSkillPrereqs(skillId) {
+        const reqs = SKILL_PREREQS[skillId];
+        if (!reqs) return [];
+        const unmet = [];
+        for (const r of reqs) {
+          const have = world.skills[r.id] || 0;
+          if (have < r.minLevel) unmet.push(r);
+        }
+        return unmet;
+      }
+
+      function skillLockReason(skillId) {
+        const unmet = unmetSkillPrereqs(skillId);
+        if (!unmet.length) return '';
+        const parts = unmet.map(r => SKILLS[r.id]?.name || r.id);
+        return `Requires: ${parts.join(', ')}`;
+      }
+
+      function renderSkillTree() {
+        if (!skillGridEl) return;
+        skillGridEl.innerHTML = '';
+
+        for (const tree of SKILL_TREES) {
+          const column = document.createElement('div');
+          column.className = 'tree-column';
+
+          const title = document.createElement('div');
+          title.className = 'tree-title';
+          title.textContent = tree.title;
+          column.appendChild(title);
+
+          const nodes = document.createElement('div');
+          nodes.className = 'tree-nodes';
+
+          const ids = tree.skills.filter(id => !!SKILLS[id]);
+          for (let idx = 0; idx < ids.length; idx++) {
+            const id = ids[idx];
+            const skill = SKILLS[id];
+            const currentLevel = world.skills[id] || 0;
+            const isMax = currentLevel >= skill.costs.length;
+            const nextCost = isMax ? null : skill.costs[currentLevel];
+            const canAfford = nextCost !== null && world.pp >= nextCost;
+            const currentVal = skill.levels[currentLevel];
+            const lockReason = currentLevel === 0 ? skillLockReason(id) : '';
+            const isLocked = !!lockReason;
+            const isWipLocked = !!(skill.wip && currentLevel > 0);
+            const disabled = isMax || !canAfford || isLocked || isWipLocked;
+
+            let btnLabel = 'Upgrade';
+            if (isMax) btnLabel = 'MAXED';
+            else if (isWipLocked) btnLabel = 'WIP';
+            else if (isLocked) btnLabel = 'LOCKED';
+            else btnLabel = `Upgrade (${nextCost} PP)`;
+
+            const card = document.createElement('div');
+            card.className = 'skill-card';
+            card.innerHTML = `
+              <div class="skill-name">${skill.name}${skill.wip ? '<span class="wip">WIP</span>' : ''}</div>
+              <div class="skill-desc">${skill.desc}${lockReason ? `<div class="skill-req">${lockReason}</div>` : ''}</div>
+              <div class="skill-stats">Current: ${currentVal}${skill.unit} ${isMax ? '(MAX)' : `➔ ${skill.levels[currentLevel + 1]}${skill.unit}`}</div>
+              <button class="btn-upgrade" ${disabled ? 'disabled' : ''}>${btnLabel}</button>
+            `;
+            const btn = card.querySelector('button');
+            btn.addEventListener('click', () => window.upgradeSkill(id));
+            nodes.appendChild(card);
+
+            if (idx < ids.length - 1) {
+              const link = document.createElement('div');
+              link.className = 'tree-link';
+              link.textContent = '↓';
+              nodes.appendChild(link);
+            }
+          }
+
+          column.appendChild(nodes);
+          skillGridEl.appendChild(column);
         }
       }
 
@@ -2864,15 +2999,29 @@
 
       window.upgradeSkill = (id) => {
         const skill = SKILLS[id];
-        const currentLevel = world.skills[id];
+        if (!skill || !world.skills.hasOwnProperty(id)) return;
+        const currentLevel = world.skills[id] || 0;
+        const isMax = currentLevel >= skill.costs.length;
+        if (isMax) return;
+        if (skill.wip && currentLevel > 0) return;
+
         const nextCost = skill.costs[currentLevel];
-        if (world.pp >= nextCost) {
-          world.pp -= nextCost;
-          world.skills[id]++;
-          saveProgress();
-          updateHUD();
-          renderSkillTree();
+        if (!Number.isFinite(nextCost)) return;
+        if (world.pp < nextCost) return;
+
+        if (currentLevel === 0) {
+          const lockReason = skillLockReason(id);
+          if (lockReason) {
+            showComms(`LOCKED: ${lockReason}`, 'fail', 2600);
+            return;
+          }
         }
+
+        world.pp -= nextCost;
+        world.skills[id] = currentLevel + 1;
+        saveProgress();
+        updateHUD();
+        renderSkillTree();
       };
 
       window.addEventListener('keydown', (e) => {
@@ -3117,6 +3266,9 @@
         }
 
         const radiusMult = SKILLS.kineticImpact.levels[world.skills.kineticImpact];
+        const damagePerHit = (SKILLS.impactDamage && SKILLS.impactDamage.levels)
+          ? (SKILLS.impactDamage.levels[world.skills.impactDamage] || 1)
+          : 1;
         const bodies = world.gravityBodies;
         let aliveCount = 0;
         const margin = Math.min(W, H) * 0.72;
@@ -3144,7 +3296,7 @@
             const hitR = (st.size + m.r * radiusMult + 3);
             if (d2 <= hitR * hitR) {
               st.hitCooldown = 0.12;
-              st.hp = Math.max(0, (Number.isFinite(st.hp) ? st.hp : 1) - 1);
+              st.hp = Math.max(0, (Number.isFinite(st.hp) ? st.hp : 1) - damagePerHit);
               const destroyed = st.hp <= 0;
               if (destroyed) st.alive = false;
 
